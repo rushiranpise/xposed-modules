@@ -219,10 +219,15 @@ function render(data) {
   .badge.official { background: rgba(255, 184, 77, .12); color: var(--accent-2); border: 1px solid rgba(255, 184, 77, .3); }
   .badges .badge + .badge { margin-left: 0; }
   .official-chip { color: var(--accent-2); font-weight: 700; font-size: 12px; letter-spacing: .3px; }
-  .version-chip {
-    color: var(--muted); font-size: 12px;
-    border: 1px solid var(--border); padding: 2px 8px; border-radius: 6px;
+  .app-meta {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 12.5px; color: var(--muted);
   }
+  .app-version {
+    font-weight: 700; color: var(--accent-2);
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .app-date { flex-shrink: 0; white-space: nowrap; }
   .release-chip {
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 12px; font-weight: 700; color: var(--accent-2);
@@ -379,6 +384,28 @@ function render(data) {
     desc.textContent = repo.description || repo.summary || "";
     c.append(desc);
 
+    const release = repo.release || {};
+    const version =
+      release.tag ||
+      (repo.metadata && repo.metadata.version ? repo.metadata.version : "");
+    if (version) {
+      const meta = document.createElement("div");
+      meta.className = "app-meta";
+      const ver = document.createElement("span");
+      ver.className = "app-version";
+      ver.textContent = version.startsWith("v") ? version : "v" + version;
+      ver.title = "Version " + ver.textContent;
+      meta.append(ver);
+      if (release.published_at) {
+        const date = document.createElement("span");
+        date.className = "app-date";
+        date.textContent = "released " + timeAgo(release.published_at);
+        date.title = "Released " + new Date(release.published_at).toLocaleDateString();
+        meta.append(date);
+      }
+      c.append(meta);
+    }
+
     const tags = isOfficialOnly ? repo.scope || [] : repo.topics || [];
     if (tags.length) {
       const tagsEl = document.createElement("div");
@@ -424,13 +451,6 @@ function render(data) {
       foot.append(lang);
     }
 
-    if (repo.metadata && repo.metadata.version) {
-      const ver = document.createElement("span");
-      ver.className = "version-chip";
-      ver.textContent = "v" + repo.metadata.version;
-      foot.append(ver);
-    }
-
     const badges = document.createElement("span");
     badges.className = "badges";
     if (!isOfficialOnly && isOfficial(repo)) {
@@ -453,21 +473,19 @@ function render(data) {
     }
     if (badges.childElementCount) foot.append(badges);
 
-    if (repo.release && repo.release.tag) {
+    if (release.tag) {
       const rel = document.createElement("a");
-      rel.className = "release-chip" + (repo.release.prerelease ? " prerelease" : "");
-      rel.href = repo.release.apk_url || repo.release.html_url || "#";
+      rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
+      rel.href = release.apk_url || release.html_url || "#";
       rel.target = "_blank";
       rel.rel = "noopener";
-      rel.textContent =
-        "\u2b07 " + repo.release.tag +
-        (repo.release.published_at ? " \u00b7 " + timeAgo(repo.release.published_at) : "");
+      rel.textContent = "\u2b07 Download latest";
       rel.title =
-        "Release " + (repo.release.name || repo.release.tag) +
-        (repo.release.published_at
-          ? " \u00b7 " + new Date(repo.release.published_at).toLocaleDateString()
+        "Release " + (release.name || release.tag) +
+        (release.published_at
+          ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
           : "") +
-        (repo.release.apk_url ? " \u00b7 download APK" : "");
+        (release.apk_url ? " \u00b7 direct APK download" : "");
       foot.append(rel);
     }
 
