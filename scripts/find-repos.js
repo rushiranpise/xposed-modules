@@ -59,6 +59,7 @@ const DEFAULT_QUERIES = [
 const DEFAULT_MAX_PAGES = 5; // pages per query; 100 repos per page, API caps at 1000/query
 const DEFAULT_DELAY_MS = 1500; // politeness delay between API requests
 const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
+const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this long
 const CONCURRENCY = 24; // parallel fetches for verification / metadata
 
 // Marker files that identify a real Xposed/LSPosed module, probed at the
@@ -85,6 +86,7 @@ function parseArgs(argv) {
     delay: DEFAULT_DELAY_MS,
     noOrg: false,
     ignoreTtlDays: DEFAULT_IGNORE_TTL_DAYS,
+    releaseTtlDays: DEFAULT_RELEASE_TTL_DAYS,
   };
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
@@ -103,6 +105,9 @@ function parseArgs(argv) {
       case "--ignore-ttl-days":
         args.ignoreTtlDays = parseInt(argv[++i], 10) || DEFAULT_IGNORE_TTL_DAYS;
         break;
+      case "--release-ttl-days":
+        args.releaseTtlDays = parseInt(argv[++i], 10) || DEFAULT_RELEASE_TTL_DAYS;
+        break;
       default:
         console.warn(`Unknown argument: ${argv[i]}`);
     }
@@ -111,6 +116,10 @@ function parseArgs(argv) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Set once a known rate-limit stop is underway, to suppress warning spam
+// from in-flight parallel requests.
+let quietWarnings = false;
 
 function requestHeaders() {
   const headers = {
@@ -191,7 +200,9 @@ async function githubGet(url) {
     const res = await fetch(url, { headers: requestHeaders(), signal: AbortSignal.timeout(20000) });
     if (!res.ok && (res.status === 403 || res.status === 429)) {
       const remaining = res.headers.get("x-ratelimit-remaining");
-      console.warn(`  Rate limited (HTTP ${res.status}), remaining: ${remaining ?? "?"}`);
+      if (!quietWarnings) {
+        console.warn(`  Rate limited (HTTP ${res.status}), remaining: ${remaining ?? "?"}`);
+      }
       return { ok: false, rateLimited: remaining === "0" };
     }
     return res;
@@ -380,6 +391,7 @@ async function main() {
         description: meta.summary || repo.description || "",
         scope: meta.scope,
         archived: !!repo.archived,
+        pushed_at: repo.pushed_at || "", // when the entry was last updated in the repo
         added_at: prev ? prev.added_at : undefined, // baseline entries are not "new"
         verified: true,
         source: "lsposed-repo",
@@ -390,6 +402,13 @@ async function main() {
       orgCount++;
       const m = entry.source_url ? entry.source_url.match(/github\.com\/([^/]+\/[^/?#]+)/i) : null;
       if (m) orgBySource.set(m[1].toLowerCase(), entry);
+    }
+    // If the crawl was cut short (e.g. rate limit), keep official entries from
+    // previous runs that this crawl didn't get to, so the list never shrinks.
+    for (const repo of existingList) {
+      if (repo.source === "lsposed-repo" && !final.has(repo.full_name)) {
+        final.set(repo.full_name, repo);
+      }
     }
     console.log(`  ${orgCount} official module entries`);
   }
@@ -407,19 +426,18 @@ async function main() {
     }
   }
 
-  // Re-verify unverified entries from previous runs (migration), so repos that
-  // were added before verification existed don't stay in the list by accident.
+  // Keep entries from previous runs that this run's search didn't return (e.g.
+  // after a deeper crawl), and re-verify any pre-verification leftovers.
+  const searchNames = new Set(candidates.map((c) => c.full_name.toLowerCase()));
   for (const repo of existingList) {
-    if (!repo.verified && repo.full_name) {
-      candidates.push({
-        full_name: repo.full_name,
-        html_url: repo.html_url,
-        description: repo.description,
-        owner: repo.owner || { login: "" },
-        topics: repo.topics || [],
-        archived: repo.archived,
-      });
-    }
+    if (!repo.full_name || repo.source === "lsposed-repo") continue; // org entries come from the crawl
+    if (searchNames.has(repo.full_name.toLowerCase())) continue; // fresh search data will refresh it
+    candidates.push({
+      full_name: repo.full_name,
+      owner: repo.owner || { login: "" },
+      _existing: true,
+      _verified: !!repo.verified,
+    });
   }
 
   // Skip repos owned by the official org (already covered by the crawl).
@@ -432,7 +450,7 @@ async function main() {
     seen.add(repo.full_name.toLowerCase());
     toVerify.push(repo);
   }
-  console.log(`  ${toVerify.length} unique candidates to verify`);
+  console.log(`  ${toVerify.length} unique candidates`);
 
   const results = await runPool(toVerify, CONCURRENCY, async (repo) => {
     const orgEntry = orgBySource.get(repo.full_name.toLowerCase());
@@ -442,6 +460,17 @@ async function main() {
     const ign = ignored[ignoredKey];
     if (ign && ign.checked_at && Date.now() - new Date(ign.checked_at).getTime() < ignoreTtlMs) {
       return { repo, verdict: "ignored" };
+    }
+
+    // Already verified on a previous run: skip re-probing (stats still refresh).
+    const prevEntry = existingByKey.get(repo.full_name);
+    if (repo._verified || (prevEntry && prevEntry.verified)) {
+      return {
+        repo,
+        verdict: "known",
+        marker: prevEntry ? prevEntry.marker : null,
+        metadata: prevEntry ? prevEntry.metadata : null,
+      };
     }
 
     const probe = await probeRepo(repo.full_name);
@@ -463,6 +492,7 @@ async function main() {
   let verified = 0;
   let rejected = 0;
   let merged = 0;
+  let known = 0;
   for (const { repo, verdict, marker, metadata } of results) {
     if (verdict === "ignored") continue;
     if (verdict === "rejected") {
@@ -488,23 +518,92 @@ async function main() {
       };
       final.delete(orgEntry.full_name); // the bare official entry is upgraded
       merged++;
+    } else if (repo._existing) {
+      // Not in this run's search results: keep the stored entry as-is.
+      entry = {
+        ...prev,
+        verified: true,
+        source: prev && prev.source === "lsposed-repo+search" ? "lsposed-repo+search" : "search",
+      };
     } else {
       entry = { ...pickRepo(repo), verified: true, source: "search" };
     }
     if (marker) entry.marker = marker;
     if (metadata && Object.keys(metadata).length) entry.metadata = metadata;
     entry.added_at = prev ? prev.added_at : nowIso;
+    // Keep cached enrichment across refreshes (release data has its own TTL).
+    if (prev && prev.release) entry.release = prev.release;
+    if (prev && prev.release_fetched_at) entry.release_fetched_at = prev.release_fetched_at;
+    // First merge: carry the official entry's cached release over too.
+    if (!entry.release && orgEntry && orgEntry.release) {
+      entry.release = orgEntry.release;
+      entry.release_fetched_at = entry.release_fetched_at || orgEntry.release_fetched_at;
+    }
+    if (verdict === "known") known++;
     final.set(entry.full_name, entry);
     verified++;
   }
 
   // Sort: real repos by stars (desc), official-only entries (no star count)
   // sink to the bottom, then alphabetically.
-  const all = [...final.values()].sort((a, b) => {
+  const sorted = [...final.values()].sort((a, b) => {
     const sa = typeof a.stargazers_count === "number" ? a.stargazers_count : -1;
     const sb = typeof b.stargazers_count === "number" ? b.stargazers_count : -1;
     if (sb !== sa) return sb - sa;
     return (a.full_name || "").localeCompare(b.full_name || "");
+  });
+
+  // ---- Latest release info (cached, re-fetched after --release-ttl-days) ----
+  // Gives the useful bits: version tag, publish date, and an APK download link.
+  let releaseStopped = false;
+  let releasedCount = 0;
+  const releaseTtlMs = args.releaseTtlDays * 24 * 60 * 60 * 1000;
+  const all = await runPool(sorted, CONCURRENCY, async (entry) => {
+    if (releaseStopped) return entry;
+    // Cache both the "has release" and "no release" states (release_fetched_at).
+    if (
+      entry.release_fetched_at &&
+      Date.now() - new Date(entry.release_fetched_at).getTime() < releaseTtlMs
+    ) {
+      if (entry.release && entry.release.tag) releasedCount++;
+      return entry;
+    }
+    const repoRef = entry.org_repo || entry.full_name;
+    const url = new URL(`https://api.github.com/repos/${repoRef}/releases`);
+    url.searchParams.set("per_page", "1");
+    const res = await githubGet(url);
+    if (!res) return entry;
+    if (!res.ok) {
+      if (res.rateLimited) {
+        releaseStopped = true;
+        quietWarnings = true;
+      }
+      return entry;
+    }
+    let list = [];
+    try {
+      list = await res.json();
+    } catch {
+      return entry;
+    }
+    const fetchedAt = new Date().toISOString();
+    if (!Array.isArray(list) || list.length === 0) {
+      return { ...entry, release: null, release_fetched_at: fetchedAt };
+    }
+    const r = list[0];
+    const apk = (r.assets || []).find((a) => /\.apk$/i.test(a.name || ""));
+    const release = {
+      tag: r.tag_name || "",
+      name: r.name || "",
+      published_at: r.published_at || "",
+      html_url: r.html_url || "",
+      apk_url: apk
+        ? apk.browser_download_url
+        : (r.assets && r.assets[0] && r.assets[0].browser_download_url) || "",
+      prerelease: !!r.prerelease,
+    };
+    releasedCount++;
+    return { ...entry, release, release_fetched_at: fetchedAt };
   });
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -514,14 +613,20 @@ async function main() {
   const newCount = [...final.keys()].filter((k) => !existingByKey.has(k)).length;
   console.log("");
   console.log(`Official entries: ${orgCount}`);
-  console.log(`Verified from search: ${verified} (${merged} merged with official entries)`);
+  console.log(`Verified from search: ${verified} (${known} kept from cache, ${merged} merged with official entries)`);
   console.log(`Rejected (not modules): ${rejected}`);
   console.log(`Ignored cache: ${Object.keys(ignored).length} repos (re-checked after ${args.ignoreTtlDays}d)`);
+  console.log(`Release info: ${releasedCount} of ${all.length} modules`);
   console.log(`Total modules: ${all.length} (had ${existingList.length}, +${newCount} new)`);
   console.log(`Wrote ${DATA_FILE} and ${IGNORED_FILE}`);
   if (rateLimited) {
     console.warn(
       "Note: GitHub API rate limit hit; the list may be incomplete. Set GITHUB_TOKEN for higher limits and full git-tree verification."
+    );
+  }
+  if (releaseStopped) {
+    console.warn(
+      "Note: rate-limited while fetching release info; entries keep their cached release data and are retried on the next run."
     );
   }
 }

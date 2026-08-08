@@ -18,6 +18,8 @@ The list in [`data/repos.json`](data/repos.json) is built from two sources:
 
 These entries never need verification — they're the official baseline. Where search also finds the module's real source repo, the two are merged (real stats + official metadata).
 
+Every module also gets its **latest release** fetched (version tag, publish date and a direct APK download link when available) and its **last commit** time is shown. Release data is cached and re-fetched after 7 days, so the daily workflow only pays for a small refresh instead of 1,000+ API calls every run.
+
 ### 2. GitHub search, verified by code markers
 The same script searches GitHub for modules that are *not* in the official repository. To keep out random repos (Frida toolkits, root-detection collections, tutorials, …), every candidate must contain one of the marker files that Xposed/LSPosed actually require in source code:
 
@@ -60,6 +62,7 @@ Without a token the search API allows 10 requests/minute and tree-scan verificat
 | How deep to search | `--max-pages N` (default 5 pages × 100 results per query; the API caps at 1000 per query) |
 | Skip the official-repo crawl | `--no-org` |
 | How often rejected candidates are re-checked | `--ignore-ttl-days N` (default 30) |
+| How often latest-release info is refreshed | `--release-ttl-days N` (default 7) |
 | Update schedule | the `cron` line in `.github/workflows/update.yml` (e.g. `0 6 * * *` = 06:00 UTC) |
 
 ## Notes
