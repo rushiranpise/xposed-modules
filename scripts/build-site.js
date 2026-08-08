@@ -358,7 +358,7 @@ function render(data) {
 
 <footer>
   <div class="footer-inner">
-  <span class="gen-line">Generated using <a href="https://github.com/features/actions" target="_blank" rel="noopener"><b>GitHub Actions</b></a> on <span id="gen-date"></span></span>
+  <span class="gen-line">Generated using <a href="https://github.com/rushiranpise/xposed-modules/actions" target="_blank" rel="noopener"><b>GitHub Actions</b></a> on <span id="gen-date"></span></span>
   </div>
 </footer>
 
@@ -499,25 +499,6 @@ function render(data) {
       c.append(meta);
     }
 
-    if (release.tag) {
-      const dlRow = document.createElement("div");
-      dlRow.className = "dl-row";
-      const rel = document.createElement("a");
-      rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
-      rel.href = release.apk_url || release.html_url || "#";
-      rel.target = "_blank";
-      rel.rel = "noopener";
-      rel.textContent = "\u2b07 Download latest";
-      rel.title =
-        "Release " + (release.name || release.tag) +
-        (release.published_at
-          ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
-          : "") +
-        (release.apk_url ? " \u00b7 direct APK download" : "");
-      dlRow.append(rel);
-      c.append(dlRow);
-    }
-
     const tags = isOfficialOnly ? repo.scope || [] : repo.topics || [];
     if (tags.length) {
       const tagsEl = document.createElement("div");
@@ -594,7 +575,27 @@ function render(data) {
     if (commitAt) updated.textContent = "updated " + timeAgo(commitAt);
     foot.append(updated);
 
+    let dlRow = null;
+    if (release.tag) {
+      dlRow = document.createElement("div");
+      dlRow.className = "dl-row";
+      const rel = document.createElement("a");
+      rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
+      rel.href = release.apk_url || release.html_url || "#";
+      rel.target = "_blank";
+      rel.rel = "noopener";
+      rel.textContent = "\u2b07 Download latest";
+      rel.title =
+        "Release " + (release.name || release.tag) +
+        (release.published_at
+          ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
+          : "") +
+        (release.apk_url ? " \u00b7 direct APK download" : "");
+      dlRow.append(rel);
+    }
+
     c.append(foot);
+    if (release.tag) c.append(dlRow);
     return c;
   }
 
