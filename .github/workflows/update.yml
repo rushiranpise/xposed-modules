@@ -5,6 +5,7 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+  push:
 
 permissions:
   contents: write   # commit the updated data/repos.json + site/index.html
