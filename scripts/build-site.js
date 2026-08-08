@@ -64,7 +64,7 @@ function render(data) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Xposed Modules Directory</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='4' fill='%23ff7a3d'/%3E%3Ctext x='8' y='12' font-size='10' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230b0f14'%3EX%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='4' fill='%2338bdf8'/%3E%3Ctext x='8' y='12' font-size='10' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230b0f14'%3EX%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #0b0f14;
@@ -74,8 +74,9 @@ function render(data) {
     --border: #232d3a;
     --text: #e6edf3;
     --muted: #8b98a5;
-    --accent: #ff7a3d;
-    --accent-2: #ffb84d;
+    --accent: #38bdf8;
+    --accent-2: #7dd3fc;
+    --accent-3: #5bc0de;
     --new: #3fb950;
     --archived: #6e7681;
     --radius: 14px;
@@ -84,8 +85,8 @@ function render(data) {
   html { color-scheme: dark; }
   body {
     background:
-      radial-gradient(1000px 500px at 85% -10%, rgba(255, 122, 61, .14), transparent 60%),
-      radial-gradient(900px 500px at -10% 0%, rgba(255, 184, 77, .08), transparent 55%),
+      radial-gradient(1000px 500px at 85% -10%, rgba(56, 189, 248, .14), transparent 60%),
+      radial-gradient(900px 500px at -10% 0%, rgba(125, 211, 252, .08), transparent 55%),
       var(--bg);
     color: var(--text);
     font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
@@ -106,12 +107,12 @@ function render(data) {
   .logo-badge {
     width: 52px; height: 52px;
     border-radius: 14px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    background: linear-gradient(135deg, var(--accent), var(--accent-3));
     display: grid; place-items: center;
     font-size: 26px; font-weight: 900; color: #0b0f14;
-    box-shadow: 0 8px 30px rgba(255, 122, 61, .35);
+    box-shadow: 0 8px 30px rgba(56, 189, 248, .35);
   }
-  .logo .grad { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .logo .grad { background: linear-gradient(90deg, var(--accent), var(--accent-3)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .tagline { color: var(--muted); margin-top: 10px; font-size: 16px; }
   .stats { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
   .stat {
@@ -136,7 +137,7 @@ function render(data) {
     padding: 10px 14px 10px 38px; font-size: 15px; outline: none;
     transition: border-color .15s, box-shadow .15s;
   }
-  #search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 122, 61, .18); }
+  #search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, .18); }
   select {
     background: var(--card); color: var(--text);
     border: 1px solid var(--border); border-radius: 10px;
@@ -154,8 +155,8 @@ function render(data) {
   }
   .seg button:hover { color: var(--text); }
   .seg button.active {
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    color: #0b0f14; box-shadow: 0 2px 10px rgba(255, 122, 61, .35);
+    background: linear-gradient(135deg, var(--accent), var(--accent-3));
+    color: #0b0f14; box-shadow: 0 2px 10px rgba(56, 189, 248, .35);
   }
   .check {
     display: inline-flex; align-items: center; gap: 8px;
@@ -198,8 +199,8 @@ function render(data) {
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .tag {
     font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
-    background: rgba(255, 122, 61, .12); color: var(--accent-2);
-    border: 1px solid rgba(255, 122, 61, .25);
+    background: rgba(56, 189, 248, .12); color: var(--accent-2);
+    border: 1px solid rgba(56, 189, 248, .25);
   }
   .tag.more { background: var(--bg-soft); color: var(--muted); border-color: var(--border); }
   .card-foot {
@@ -216,7 +217,7 @@ function render(data) {
   .badge { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; }
   .badge.new { background: rgba(63, 185, 80, .15); color: var(--new); border: 1px solid rgba(63, 185, 80, .35); }
   .badge.archived { background: rgba(110, 118, 129, .15); color: var(--archived); border: 1px solid rgba(110, 118, 129, .35); }
-  .badge.official { background: rgba(255, 184, 77, .12); color: var(--accent-2); border: 1px solid rgba(255, 184, 77, .3); }
+  .badge.official { background: rgba(125, 211, 252, .12); color: var(--accent-2); border: 1px solid rgba(125, 211, 252, .3); }
   .badges .badge + .badge { margin-left: 0; }
   .official-chip { color: var(--accent-2); font-weight: 700; font-size: 12px; letter-spacing: .3px; }
   .app-meta {
@@ -231,18 +232,18 @@ function render(data) {
   .app-api {
     flex-shrink: 0;
     font-size: 11px; font-weight: 700; letter-spacing: .2px;
-    color: #79c0ff;
-    background: rgba(121, 192, 255, .1); border: 1px solid rgba(121, 192, 255, .22);
+    color: #7dd3fc;
+    background: rgba(125, 211, 252, .1); border: 1px solid rgba(125, 211, 252, .22);
     padding: 1px 7px; border-radius: 999px;
   }
   .release-chip {
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 12px; font-weight: 700; color: var(--accent-2);
-    background: rgba(255, 122, 61, .1); border: 1px solid rgba(255, 122, 61, .35);
+    background: rgba(56, 189, 248, .1); border: 1px solid rgba(56, 189, 248, .35);
     padding: 2px 9px; border-radius: 6px; text-decoration: none;
     transition: background .15s, border-color .15s;
   }
-  .release-chip:hover { background: rgba(255, 122, 61, .2); border-color: var(--accent); }
+  .release-chip:hover { background: rgba(56, 189, 248, .2); border-color: var(--accent); }
   .release-chip.prerelease { border-style: dashed; opacity: .85; }
   .empty {
     text-align: center; color: var(--muted); padding: 60px 0;
@@ -263,7 +264,7 @@ function render(data) {
 </head>
 <body>
 <header>
-  <div class="logo"><span class="logo-badge">X</span><span class="grad">Xposed Modules Directory</span></div>
+  <div class="logo"><span class="grad">Xposed Modules Directory</span></div>
   <p class="tagline">Mega collection of Xposed &amp; LSPosed modules of all time — updated daily.</p>
   <div class="stats">
     <span class="stat"><b id="stat-total">0</b> modules</span>
