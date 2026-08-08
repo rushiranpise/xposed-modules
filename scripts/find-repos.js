@@ -480,6 +480,10 @@ async function main() {
         scope: meta.scope,
         archived: !!repo.archived,
         pushed_at: repo.pushed_at || "", // when the entry was last updated in the repo
+        updated_at: repo.updated_at || "",
+        stargazers_count: repo.stargazers_count ?? null,
+        language: repo.language || null,
+        owner: repo.owner || null,
         added_at: prev ? prev.added_at : undefined, // baseline entries are not "new"
         verified: true,
         source: "lsposed-repo",
