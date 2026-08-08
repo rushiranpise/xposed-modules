@@ -189,7 +189,10 @@ function render(data) {
     display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .card-name a:hover { color: var(--accent); }
-  .card-owner { color: var(--muted); font-size: 12.5px; }
+  .card-owner {
+    color: var(--muted); font-size: 12.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .desc {
     color: #b6c2cf; font-size: 13.5px; line-height: 1.5;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
@@ -201,6 +204,7 @@ function render(data) {
     font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
     background: var(--bg-soft); color: var(--muted);
     border: 1px solid var(--border);
+    max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .tag.more { background: var(--bg-soft); color: var(--muted); border-color: var(--border); }
   .card-foot {
@@ -227,7 +231,7 @@ function render(data) {
   }
   .app-version {
     font-weight: 700; color: var(--accent-2);
-    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .app-date { flex-shrink: 0; white-space: nowrap; }
   .app-api {
