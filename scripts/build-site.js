@@ -146,6 +146,21 @@ function render(data) {
     border: 1px solid var(--border); border-radius: 10px;
     padding: 10px 12px; font-size: 14px; outline: none; cursor: pointer;
   }
+  .seg {
+    display: inline-flex; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px;
+  }
+  .seg button {
+    border: 0; background: transparent; color: var(--muted);
+    font-size: 13px; font-weight: 600; padding: 7px 14px;
+    border-radius: 7px; cursor: pointer; font-family: inherit;
+    transition: background .15s, color .15s, box-shadow .15s;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0b0f14; box-shadow: 0 2px 10px rgba(255, 122, 61, .35);
+  }
   .check {
     display: inline-flex; align-items: center; gap: 8px;
     color: var(--muted); font-size: 14px; cursor: pointer; user-select: none;
@@ -264,6 +279,11 @@ function render(data) {
     <option value="released">Sort: Recently released</option>
     <option value="added">Sort: Newest added</option>
   </select>
+  <div class="seg" id="type-filter" role="group" aria-label="Module type">
+    <button data-type="all" class="active" aria-pressed="true" title="Show all modules">All</button>
+    <button data-type="official" title="Only modules from the official LSPosed repo">Official</button>
+    <button data-type="unofficial" title="Only modules found by code-marker verification">Unofficial</button>
+  </div>
   <label class="check"><input type="checkbox" id="hide-archived" checked> Hide archived</label>
   <span id="count"></span>
 </div>
@@ -294,6 +314,7 @@ function render(data) {
   };
   const fmt = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
   const fmtFull = new Intl.NumberFormat("en");
+  const isOfficial = (r) => (r.source || "").startsWith("lsposed-repo");
 
   const el = {
     grid: document.getElementById("grid"),
@@ -420,6 +441,12 @@ function render(data) {
 
     const badges = document.createElement("span");
     badges.className = "badges";
+    if (!isOfficialOnly && isOfficial(repo)) {
+      const b = document.createElement("span");
+      b.className = "badge official";
+      b.textContent = "Official";
+      badges.append(b);
+    }
     if (!isOfficialOnly && repo.added_at && Date.now() - new Date(repo.added_at).getTime() < 7 * 86400000) {
       const b = document.createElement("span");
       b.className = "badge new";
@@ -466,6 +493,8 @@ function render(data) {
     const q = el.search.value.trim().toLowerCase();
     let list = repos.filter((r) => {
       if (el.hideArchived.checked && r.archived) return false;
+      if (typeFilter === "official" && !isOfficial(r)) return false;
+      if (typeFilter === "unofficial" && isOfficial(r)) return false;
       if (!q) return true;
       return (
         r.full_name.toLowerCase().includes(q) ||
@@ -503,6 +532,20 @@ function render(data) {
     el.empty.classList.toggle("hidden", list.length !== 0);
     el.count.textContent = list.length + " of " + DATA.repos.length + " modules";
   }
+
+  let typeFilter = "all";
+  const typeButtons = Array.from(document.querySelectorAll("#type-filter button"));
+  typeButtons.forEach((b) =>
+    b.addEventListener("click", () => {
+      typeFilter = b.dataset.type;
+      typeButtons.forEach((x) => {
+        const on = x === b;
+        x.classList.toggle("active", on);
+        x.setAttribute("aria-pressed", String(on));
+      });
+      render();
+    })
+  );
 
   el.search.addEventListener("input", render);
   el.sort.addEventListener("change", render);
