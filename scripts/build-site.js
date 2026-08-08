@@ -583,7 +583,7 @@ function render(data) {
       rel.href = release.apk_url || release.html_url || "#";
       rel.target = "_blank";
       rel.rel = "noopener";
-      rel.textContent = "Download latest";
+      rel.textContent = release.apk_url ? "Download latest" : "View release";
       rel.title =
         "Release " + (release.name || release.tag) +
         (release.published_at

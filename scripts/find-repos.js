@@ -622,10 +622,12 @@ async function main() {
     // Keep cached enrichment across refreshes (release data has its own TTL).
     if (prev && prev.release) entry.release = prev.release;
     if (prev && prev.release_fetched_at) entry.release_fetched_at = prev.release_fetched_at;
+    if (prev && prev.release_checked_deep) entry.release_checked_deep = true;
     // First merge: carry the official entry's cached release over too.
     if (!entry.release && orgEntry && orgEntry.release) {
       entry.release = orgEntry.release;
       entry.release_fetched_at = entry.release_fetched_at || orgEntry.release_fetched_at;
+      if (orgEntry.release_checked_deep) entry.release_checked_deep = true;
     }
     if (verdict === "known") known++;
     final.set(entry.full_name, entry);
@@ -728,7 +730,11 @@ async function main() {
   const all = await runPool(sorted, CONCURRENCY, async (entry) => {
     if (releaseStopped) return entry;
     // Cache both the "has release" and "no release" states (release_fetched_at).
+    // Only honor the cache once a release has been DEEP-checked (release_checked_deep):
+    // older entries were shallow-scanned (latest release only) and may hide an APK
+    // in an earlier release, so they get re-fetched once with the new scan.
     if (
+      entry.release_checked_deep &&
       entry.release_fetched_at &&
       Date.now() - new Date(entry.release_fetched_at).getTime() < releaseTtlMs
     ) {
@@ -737,7 +743,7 @@ async function main() {
     }
     const repoRef = entry.org_repo || entry.full_name;
     const url = new URL(`https://api.github.com/repos/${repoRef}/releases`);
-    url.searchParams.set("per_page", "1");
+    url.searchParams.set("per_page", "10");
     const res = await githubGet(url);
     if (!res) return entry;
     if (!res.ok) {
@@ -757,20 +763,28 @@ async function main() {
     if (!Array.isArray(list) || list.length === 0) {
       return { ...entry, release: null, release_fetched_at: fetchedAt };
     }
-    const r = list[0];
-    const apk = (r.assets || []).find((a) => /\.apk$/i.test(a.name || ""));
+    // Pick the NEWEST release that actually carries an .apk asset. The latest
+    // release is often a docs-only/zip tag, so a shallow scan would report
+    // "no APK" even though an earlier release ships the module.
+    const isApkAsset = (a) => /\.apk$/i.test((a && a.name) || "");
+    const r = list.find((x) => (x.assets || []).some(isApkAsset)) || list[0];
+    const apk = (r.assets || []).find(isApkAsset);
     const release = {
       tag: r.tag_name || "",
       name: r.name || "",
       published_at: r.published_at || "",
       html_url: r.html_url || "",
-      apk_url: apk
-        ? apk.browser_download_url
-        : (r.assets && r.assets[0] && r.assets[0].browser_download_url) || "",
+      // Only ever point at a real .apk asset (never a zip/source fallback).
+      apk_url: apk ? apk.browser_download_url : "",
       prerelease: !!r.prerelease,
     };
     releasedCount++;
-    return { ...entry, release, release_fetched_at: fetchedAt };
+    return {
+      ...entry,
+      release,
+      release_fetched_at: fetchedAt,
+      release_checked_deep: true,
+    };
   });
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
