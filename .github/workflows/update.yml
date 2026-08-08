@@ -1,0 +1,63 @@
+name: Update Xposed Modules List
+
+# Runs every day at 03:00 UTC, and can be triggered manually from the Actions tab.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # commit the updated data/repos.json + site/index.html
+  pages: write      # deploy to GitHub Pages
+  id-token: write   # required by actions/configure-pages / deploy-pages
+
+# Only one run at a time, so two runs can't race on the data file.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Find Xposed module repos
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/find-repos.js
+
+      - name: Build site
+        run: node scripts/build-site.js
+
+      # Commit the updated list + site so the next run can diff against it
+      # and only add NEW repos (never the same ones again).
+      - name: Commit updated data and site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/repos.json site/index.html
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update xposed module list and site"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
