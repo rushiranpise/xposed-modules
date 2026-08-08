@@ -222,7 +222,7 @@ function render(data) {
   .badges .badge + .badge { margin-left: 0; }
   .official-chip { color: var(--accent-2); font-weight: 700; font-size: 12px; letter-spacing: .3px; }
   .app-meta {
-    display: flex; align-items: baseline; flex-wrap: wrap; row-gap: 4px; gap: 6px;
+    display: flex; align-items: center; flex-wrap: wrap; row-gap: 4px; gap: 6px;
     font-size: 12.5px; color: var(--muted);
   }
   .app-version {
@@ -237,20 +237,21 @@ function render(data) {
     background: rgba(125, 211, 252, .1); border: 1px solid rgba(125, 211, 252, .22);
     padding: 1px 7px; border-radius: 999px;
   }
+  .dl-row { display: flex; }
   .release-chip {
-    display: inline-flex; align-items: center; gap: 5px;
-    margin-left: auto; align-self: center;
-    font-size: 12px; font-weight: 700; color: #06121f;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%;
+    font-size: 12.5px; font-weight: 700; color: #06121f;
     background: var(--accent); border: 1px solid var(--accent);
-    padding: 4px 12px; border-radius: 6px; text-decoration: none;
-    transition: background .15s, border-color .15s, opacity .15s;
+    padding: 8px 12px; border-radius: 8px; text-decoration: none;
+    transition: background .15s, border-color .15s;
   }
   .release-chip:hover { background: #0ea5e9; border-color: #0ea5e9; }
   .release-chip.prerelease {
-    border-style: dashed; opacity: .85;
-    background: rgba(56, 189, 248, .1); color: var(--accent-2);
+    background: transparent; color: var(--accent-2);
+    border: 1px dashed rgba(56, 189, 248, .45);
   }
-  .release-chip.prerelease:hover { background: rgba(56, 189, 248, .2); }
+  .release-chip.prerelease:hover { background: rgba(56, 189, 248, .1); }
   .empty {
     text-align: center; color: var(--muted); padding: 60px 0;
     font-size: 15px;
@@ -495,22 +496,26 @@ function render(data) {
         date.title = "Released " + new Date(release.published_at).toLocaleDateString();
         meta.append(date);
       }
-      if (release.tag) {
-        const rel = document.createElement("a");
-        rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
-        rel.href = release.apk_url || release.html_url || "#";
-        rel.target = "_blank";
-        rel.rel = "noopener";
-        rel.textContent = "\u2b07 Download latest";
-        rel.title =
-          "Release " + (release.name || release.tag) +
-          (release.published_at
-            ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
-            : "") +
-          (release.apk_url ? " \u00b7 direct APK download" : "");
-        meta.append(rel);
-      }
       c.append(meta);
+    }
+
+    if (release.tag) {
+      const dlRow = document.createElement("div");
+      dlRow.className = "dl-row";
+      const rel = document.createElement("a");
+      rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
+      rel.href = release.apk_url || release.html_url || "#";
+      rel.target = "_blank";
+      rel.rel = "noopener";
+      rel.textContent = "\u2b07 Download latest";
+      rel.title =
+        "Release " + (release.name || release.tag) +
+        (release.published_at
+          ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
+          : "") +
+        (release.apk_url ? " \u00b7 direct APK download" : "");
+      dlRow.append(rel);
+      c.append(dlRow);
     }
 
     const tags = isOfficialOnly ? repo.scope || [] : repo.topics || [];
