@@ -247,11 +247,6 @@ function render(data) {
     transition: background .15s, border-color .15s;
   }
   .release-chip:hover { background: #0ea5e9; border-color: #0ea5e9; }
-  .release-chip.prerelease {
-    background: transparent; color: var(--accent-2);
-    border: 1px dashed rgba(56, 189, 248, .45);
-  }
-  .release-chip.prerelease:hover { background: rgba(56, 189, 248, .1); }
   .empty {
     text-align: center; color: var(--muted); padding: 60px 0;
     font-size: 15px;
@@ -584,7 +579,7 @@ function render(data) {
       rel.href = release.apk_url || release.html_url || "#";
       rel.target = "_blank";
       rel.rel = "noopener";
-      rel.textContent = "\u2b07 Download latest";
+      rel.textContent = "Download latest";
       rel.title =
         "Release " + (release.name || release.tag) +
         (release.published_at
