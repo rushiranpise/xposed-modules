@@ -235,5 +235,422 @@
   },
   "dvdandroid/xposedmoduletemplate": {
     "checked_at": "2026-08-08T09:40:07.900Z"
+  },
+  "gentleploshed/xposed-framework-toolkit-nexus": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tianxing226/wtonec": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tunefish/xposed-okhttp-logger": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "get-mantle/mantle": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "ulysseswu/xamarinposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "pccr10001/sslunpinner": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "get-mantle/mantle-verify": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "custombeta/fingerprint-cataloge": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "eoyz369/tg_god": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kitsuri-studios/mirage": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kauemurakami/flutter_tamper_detector": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "n00byara/notificationcode": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "ulysseswu/xamarinposed.core": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "yukonga/hapticfeedback-gestureback": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "hlfaker/hlfaker": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "haikow/com.chekayo.feishuantirecall": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "flysands/xposedburp": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tomthenpc/customiuizer-a13": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "theepicface007/awesome-xposed-module": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "raise-isayan/overridesyspropmodule": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "mucute-qwq/bypassverification": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "cweiske/xposed-ouya-plain-purchases": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "itzfarhanullah/rchub-qa": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "coolestenoch/androidappiconswitcher": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "fuckapk/fuckclip": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "fuckapk/fucktoast": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "xiaoyvyv/fuck-hyperos-scroll-top": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "syther-z/xposedgyro": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "toprak101112-blip/chromex": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "rishi058/redroid": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "6f7663/line-adfree-dualapp": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kapodamy/multidex-offline": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "hamamelidaecontainerful242/wa3r-offsec-kit": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "fuckapk/fuckshareext": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "ameenalasady/smoothsaver": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "corendatexan468/trustme": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kjllmeplz/hata": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "unworldly-mustard544/fix60hz": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "genussaginaargentite570/companions": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "care1es5/switchoff": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "xad0x/pause-on-mute": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "poweran2020/facenotify": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "brandonstudio/authenticatorhook": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "alienware377/purpletv-revive": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "thsmanasastomouni/elder-scrolls-online-dlc-unlocker-mod-integration-pts-support": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "spiral009/unitybackgroundkeeper": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tttt369/bwxposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "lwokf/moja1-zh-cn-unofficial": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "mediocre-tubaroot981/android-tool-co": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kenshinxslay/il2fusion": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "li589/clawdroid": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "avtoservice/webss": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "itsyaasir/dialer-line": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "cinit/libcoresyscall": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "vaginessa/virtual-apk": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "abforce/xposed_art_n": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "w568w/xposeddetectlib": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "rovo89/xposedexamples": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "wuxiaosu/xposedrimethelper": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "1812z/hypercopy": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "apsun/remotepreferences": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "dotcog/loxposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "canyie/dreamlandmanager": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "zhudongya123/wechatchatroomhelper": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "avi7ii/airsend": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "neonorbit/dexplore": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "linxueyuanstdio/timecat": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "withhades/forest": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "luili16/uimocker": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "cinit/jvmxposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "magisk-modules-repo/riru_edxposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "hakuin123/mqga": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kinginu/pixelmask": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "lllucccian/deekseep": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "modify24x7/bluestacks5rt": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "khanhnguyen9872/xposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "ikas-mc/px-app": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "thatworld/xpler": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "rovo89/xposedinstallerstaticbusybox": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "thegreyraven/snaptrap": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "luigivampa92/systemedxposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "icloudza/r1rpc": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "whyakari/httpcanary-magisk-and-ksu": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "zdg39/z-spider": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "wuxiaosu/xposedmanymoney": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "arc157/xposed": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kaisar945/xservicemanager": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "supermarsx/echidna": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tornaco/xposed-application-management-mod": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "kaerushi/weeabooify": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "chaojimiaomiao/colorful_wechat": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "meowool/yabai": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "thesandipv/pointer_replacer": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "tcc0lin/hook_play": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "earzuchan/sakiko": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "basil2style/xposed-android-studio-project": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "abforce/xposed_app_process": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "curz0n/toolkit": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "ikws4/kxposedhelper": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "zhkl0228/snoop": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "xzowo/zhitool": {
+    "checked_at": "2026-08-08T16:31:36.003Z"
+  },
+  "weworkscrm/wework-xposed": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "outrageousstorm/android-xposed-modules": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "radito/securityriskandroid": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "alex5402/lib-fire": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "kreashions/xposedinstaller": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "zhkl0228/snoop-api": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "apsun/xposedplugin": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "aeonlucid/xamarinxposed": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "ir0nbyte/sandwitcher": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "phong12a5/apkinjection": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "github-account-2023/simplehook-juicessh-crack": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "gtsigner/mask": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "cnfatal/catched": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "dynaevangelical2652/android-agent": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "tranhai2007/ls-transcoder": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "std-microblock/rednoteauxv": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "martinatortime/auto-lspatch": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "windysha/jdwp-xposed-injector": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "comewhy/com.comewhy.gtext": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "asiontang/xposednorebootmodulesample": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "xzakota/xposedmodulemaker": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "alexanderej59/omniclip": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "reso7200/igexperimentshooksupdates": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "tasfa/xposedmodule": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "arkaroy14/waydroid_network_spoof": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "arter97/ytpatch_scripts": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "shuixi2013/exposed-1": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "frostyxsec/deathssl": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "qqlittleice233/ironbridge-api": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "imlk0/xposedmodulemultidex": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "null-dev/xposedutil": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "rodit/xposedlib": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "ripdajacker/groovyxposedbridge": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "rinofficial0615/fuckfuckforvip": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "marcelvdmade/sslxposed": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "topsenjaofficial/how-to-hidden-cheat": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "adblocker-reborn/blocklist": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
+  },
+  "kaisar945/xposed-hotloader": {
+    "checked_at": "2026-08-08T16:47:20.672Z"
   }
 }

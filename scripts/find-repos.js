@@ -5,7 +5,7 @@
  * Build a curated list of Xposed/LSPosed module repositories.
  *
  * Usage:
- *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N]
+ *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N] [--release-ttl-days N] [--api-scan N]
  *
  * The list is built from two sources:
  *
@@ -87,6 +87,7 @@ function parseArgs(argv) {
     noOrg: false,
     ignoreTtlDays: DEFAULT_IGNORE_TTL_DAYS,
     releaseTtlDays: DEFAULT_RELEASE_TTL_DAYS,
+    apiScan: 0,
   };
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
@@ -108,6 +109,18 @@ function parseArgs(argv) {
       case "--release-ttl-days":
         args.releaseTtlDays = parseInt(argv[++i], 10) || DEFAULT_RELEASE_TTL_DAYS;
         break;
+      case "--api-scan": {
+        // Force a git-tree scan for module.prop/module.json even without a token
+        // (bypasses the metadata TTL). Optional count caps the number of scans.
+        const n = parseInt(argv[i + 1], 10);
+        if (Number.isFinite(n) && n >= 0) {
+          args.apiScan = n;
+          i++;
+        } else {
+          args.apiScan = 50;
+        }
+        break;
+      }
       default:
         console.warn(`Unknown argument: ${argv[i]}`);
     }
@@ -281,7 +294,19 @@ async function treeCheck(repo) {
   }
 }
 
-// Extract name/version/author/description from the marker file we found.
+const API_NUM_KEYS = ["minApi", "maxApi", "minSdk", "maxSdk", "versionCode"];
+const API_STR_KEYS = ["name", "version", "author", "description", "type"];
+// libxposed META-INF/xposed/module.prop uses different keys for the framework
+// API requirement: minApiVersion (minimum) and targetApiVersion (target).
+const LIBXPOSED_KEYS = { minApiVersion: "minApi", targetApiVersion: "targetApi" };
+
+function setNumericMeta(meta, key, raw) {
+  const n = Number(String(raw).trim());
+  if (Number.isFinite(n)) meta[key] = n;
+}
+
+// Extract name/version/author/description + framework API info (minApi/maxApi)
+// from the marker file we found.
 function parseMarkerBody(body, marker) {
   if (!body) return null;
   const base = marker.split("/").pop();
@@ -290,8 +315,17 @@ function parseMarkerBody(body, marker) {
     try {
       const j = JSON.parse(body);
       if (j && typeof j === "object") {
-        for (const key of ["name", "version", "author", "description", "type"]) {
+        for (const key of API_STR_KEYS) {
           if (j[key]) meta[key] = String(j[key]);
+        }
+        for (const key of API_NUM_KEYS) {
+          if (j[key] !== undefined) setNumericMeta(meta, key, j[key]);
+        }
+        // LSPosed module repo format nests the API requirement under "xposed".
+        if (j.xposed && typeof j.xposed === "object") {
+          for (const key of ["minApi", "maxApi", "minVersion"]) {
+            if (j.xposed[key] !== undefined) setNumericMeta(meta, key, j.xposed[key]);
+          }
         }
       }
     } catch {
@@ -300,12 +334,66 @@ function parseMarkerBody(body, marker) {
   } else if (base === "module.prop") {
     for (const line of body.split(/\r?\n/)) {
       const m = line.match(/^([\w.]+)\s*=\s*(.+)$/);
-      if (m && ["name", "version", "author", "description"].includes(m[1])) {
-        meta[m[1]] = m[2].trim();
+      if (!m) continue;
+      const key = LIBXPOSED_KEYS[m[1]] || m[1];
+      if (API_NUM_KEYS.includes(key) || key === "targetApi") {
+        setNumericMeta(meta, key, m[2]);
+      } else if (API_STR_KEYS.includes(key)) {
+        meta[key] = m[2].trim();
       }
     }
   }
   return Object.keys(meta).length ? meta : null;
+}
+
+// module.prop / module.json paths used by the API-metadata refresh pass.
+// Covers the classic template (app/src/main/assets) and the modern libxposed
+// layout (src/main/resources/META-INF/xposed) for common module source dirs.
+const META_PROBE_PATHS = [
+  "module.json",
+  "app/src/main/assets/module.prop",
+  "assets/module.prop",
+  "xposed/src/main/assets/module.prop",
+  "module/src/main/assets/module.prop",
+  "app/src/main/resources/META-INF/xposed/module.prop",
+  "module/src/main/resources/META-INF/xposed/module.prop",
+  "xposed/src/main/resources/META-INF/xposed/module.prop",
+  "core/src/main/resources/META-INF/xposed/module.prop",
+];
+
+// Probe a repo specifically for its API metadata (prefers module.prop/module.json).
+async function probeModuleMeta(fullName) {
+  for (const p of META_PROBE_PATHS) {
+    const r = await rawFetch(fullName, p);
+    if (r.ok) return parseMarkerBody(r.body, p);
+  }
+  return null;
+}
+
+// Find a module.prop/module.json anywhere in the repo tree (1 API call).
+// Catches unusual layouts like loader/sbl/src/main/resources/META-INF/xposed.
+// Returns a status so the caller can tell a genuine "no module.prop" from a
+// failed scan (rate limit / truncated tree) that should be retried later.
+async function findModulePropInTree(fullName) {
+  const url = new URL(`https://api.github.com/repos/${fullName}/git/trees/HEAD?recursive=1`);
+  const res = await githubGet(url);
+  if (!res) return { status: "error" };
+  if (!res.ok) return res.rateLimited ? { status: "ratelimited" } : { status: "error" };
+  try {
+    const body = await res.json();
+    if (body.truncated) return { status: "truncated" };
+    const hit = (body.tree || []).find(
+      (f) => /module\.(prop|json)$/.test(f.path) && !/node_modules/.test(f.path)
+    );
+    return hit ? { status: "ok", path: hit.path } : { status: "empty" };
+  } catch {
+    return { status: "error" };
+  }
+}
+
+function parseGithubRepo(url) {
+  const m = String(url || "").match(/github\.com\/([^/]+)\/([^/?#]+)/i);
+  return m ? `${m[1]}/${m[2]}` : null;
 }
 
 // Clean a fetched text file. Some entries store UTF-16 (with \0 padding).
@@ -543,6 +631,85 @@ async function main() {
     final.set(entry.full_name, entry);
     verified++;
   }
+
+  // ---- Framework API metadata refresh ----
+  // Fetch minApi/maxApi from module.prop/module.json for entries that don't
+  // have it yet. The real source repo is probed: the repo itself for
+  // search/merged entries, SOURCE_URL for pure official entries. Common paths
+  // are free raw fetches; when a token (or --api-scan) is present, repos that
+  // miss every path get a git-tree scan to find module.prop anywhere (catches
+  // the libxposed META-INF/xposed layout). Cached with a 30-day TTL so
+  // no-API modules aren't re-probed every run.
+  const META_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const treeScan = !!process.env.GITHUB_TOKEN || args.apiScan > 0;
+  const treeBudget = treeScan ? (process.env.GITHUB_TOKEN ? 2000 : args.apiScan) : 0;
+  const metaJobs = [];
+  const metaJobByKey = new Map(); // lowercase repo -> { repoRef, entries: [] }
+  for (const entry of final.values()) {
+    const prev = existingByKey.get(entry.full_name);
+    const hasApi =
+      entry.metadata &&
+      (entry.metadata.minApi !== undefined ||
+        entry.metadata.maxApi !== undefined ||
+        entry.metadata.targetApi !== undefined);
+    if (hasApi) continue;
+    const checkedAt = entry.metadata_checked_at || (prev && prev.metadata_checked_at);
+    // --api-scan is an explicit request: ignore the TTL and scan now.
+    if (checkedAt && !args.apiScan && Date.now() - new Date(checkedAt).getTime() < META_TTL_MS) {
+      continue;
+    }
+    const repoRef =
+      entry.source === "lsposed-repo"
+        ? (entry.source_url ? parseGithubRepo(entry.source_url) : null)
+        : entry.full_name;
+    if (!repoRef) {
+      entry.metadata_checked_at = nowIso;
+      continue;
+    }
+    const key = repoRef.toLowerCase();
+    let job = metaJobByKey.get(key);
+    if (!job) {
+      job = { repoRef, entries: [], stars: entry.stargazers_count || 0 };
+      metaJobByKey.set(key, job);
+      metaJobs.push(job);
+    }
+    job.entries.push(entry);
+    if ((entry.stargazers_count || 0) > job.stars) job.stars = entry.stargazers_count || 0;
+  }
+  // Scan the most popular repos first so a limited tree-scan budget goes to
+  // the modules people actually see.
+  metaJobs.sort((a, b) => b.stars - a.stars);
+  let metaRefreshed = 0;
+  let metaScans = 0;
+  await runPool(metaJobs, CONCURRENCY, async (job) => {
+    let m = await probeModuleMeta(job.repoRef);
+    // Only cache the "no API info" state when we're confident there is none:
+    // a failed scan (rate limited / truncated / network error) or an exhausted
+    // scan budget must not stamp metadata_checked_at, so it retries next run.
+    let cacheable = true;
+    if (!m && treeScan) {
+      if (metaScans < treeBudget) {
+        metaScans++;
+        const scan = await findModulePropInTree(job.repoRef);
+        if (scan.status === "ok") {
+          const r = await rawFetch(job.repoRef, scan.path);
+          if (r.ok) m = parseMarkerBody(r.body, scan.path);
+        } else if (scan.status !== "empty") {
+          cacheable = false; // ratelimited / truncated / error -> retry later
+        }
+      } else {
+        cacheable = false; // scan budget exhausted -> retry next run
+      }
+    }
+    for (const entry of job.entries) {
+      if (m) {
+        entry.metadata = { ...(entry.metadata || {}), ...m };
+        metaRefreshed++;
+      }
+      if (cacheable) entry.metadata_checked_at = new Date().toISOString();
+    }
+  });
+  console.log(`  API metadata refreshed for ${metaRefreshed} modules (${metaScans} tree scans)`);
 
   // Sort: real repos by stars (desc), official-only entries (no star count)
   // sink to the bottom, then alphabetically.

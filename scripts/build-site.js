@@ -228,6 +228,13 @@ function render(data) {
     min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .app-date { flex-shrink: 0; white-space: nowrap; }
+  .app-api {
+    flex-shrink: 0;
+    font-size: 11px; font-weight: 700; letter-spacing: .2px;
+    color: #79c0ff;
+    background: rgba(121, 192, 255, .1); border: 1px solid rgba(121, 192, 255, .22);
+    padding: 1px 7px; border-radius: 999px;
+  }
   .release-chip {
     display: inline-flex; align-items: center; gap: 4px;
     font-size: 12px; font-weight: 700; color: var(--accent-2);
@@ -278,6 +285,12 @@ function render(data) {
     <option value="released">Sort: Latest release</option>
     <option value="added">Sort: Newest added</option>
   </select>
+  <select id="api-filter" aria-label="Framework API filter">
+    <option value="any">Any API</option>
+    <option value="102">libxposed 102+</option>
+    <option value="93">libxposed 93+</option>
+    <option value="classic">No API info</option>
+  </select>
   <div class="seg" id="type-filter" role="group" aria-label="Module type">
     <button data-type="all" class="active" aria-pressed="true" title="Show all modules">All</button>
     <button data-type="official" title="Only modules from the official LSPosed repo">Official</button>
@@ -315,12 +328,25 @@ function render(data) {
   const fmtFull = new Intl.NumberFormat("en");
   const isOfficial = (r) => (r.source || "").startsWith("lsposed-repo");
 
+  function apiInfo(repo) {
+    const m = (repo && repo.metadata) || {};
+    const min = Number(m.minApi);
+    const max = Number(m.maxApi);
+    const target = Number(m.targetApi);
+    return {
+      min: Number.isFinite(min) ? min : null,
+      max: Number.isFinite(max) ? max : null,
+      target: Number.isFinite(target) ? target : null,
+    };
+  }
+
   const el = {
     grid: document.getElementById("grid"),
     empty: document.getElementById("empty"),
     count: document.getElementById("count"),
     search: document.getElementById("search"),
     sort: document.getElementById("sort"),
+    api: document.getElementById("api-filter"),
     hideArchived: document.getElementById("hide-archived"),
   };
 
@@ -388,14 +414,33 @@ function render(data) {
     const version =
       release.tag ||
       (repo.metadata && repo.metadata.version ? repo.metadata.version : "");
-    if (version) {
+    const api = apiInfo(repo);
+    if (version || api.min !== null || api.max !== null || api.target !== null) {
       const meta = document.createElement("div");
       meta.className = "app-meta";
-      const ver = document.createElement("span");
-      ver.className = "app-version";
-      ver.textContent = version.startsWith("v") ? version : "v" + version;
-      ver.title = "Version " + ver.textContent;
-      meta.append(ver);
+      if (version) {
+        const ver = document.createElement("span");
+        ver.className = "app-version";
+        ver.textContent = version.startsWith("v") ? version : "v" + version;
+        ver.title = "Version " + ver.textContent;
+        meta.append(ver);
+      }
+      if (api.target !== null || api.min !== null || api.max !== null) {
+        const apiEl = document.createElement("span");
+        apiEl.className = "app-api";
+        // libxposed modules report the API they're built against (targetApi),
+        // classic modules report a minimum requirement (minApi).
+        apiEl.textContent =
+          api.target !== null
+            ? "libxposed " + api.target
+            : api.min !== null && api.max !== null
+              ? "libxposed " + api.min + "–" + api.max
+              : api.min !== null
+                ? "libxposed " + api.min + "+"
+                : "libxposed ≤" + api.max;
+        apiEl.title = "LSPosed framework API requirement (from module.prop/module.json)";
+        meta.append(apiEl);
+      }
       if (release.published_at) {
         const date = document.createElement("span");
         date.className = "app-date";
@@ -505,6 +550,11 @@ function render(data) {
       if (el.hideArchived.checked && r.archived) return false;
       if (typeFilter === "official" && !isOfficial(r)) return false;
       if (typeFilter === "unofficial" && isOfficial(r)) return false;
+      const api = apiInfo(r);
+      const eff = api.target !== null ? api.target : api.min;
+      if (el.api.value === "102" && (eff === null || eff < 102)) return false;
+      if (el.api.value === "93" && (eff === null || eff < 93)) return false;
+      if (el.api.value === "classic" && eff !== null) return false;
       if (!q) return true;
       return (
         r.full_name.toLowerCase().includes(q) ||
@@ -559,6 +609,7 @@ function render(data) {
 
   el.search.addEventListener("input", render);
   el.sort.addEventListener("change", render);
+  el.api.addEventListener("change", render);
   el.hideArchived.addEventListener("change", render);
   render();
 })();
