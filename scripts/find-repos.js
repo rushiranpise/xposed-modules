@@ -2,23 +2,36 @@
 "use strict";
 
 /**
- * Find Xposed module repositories on GitHub and maintain a persistent list.
+ * Build a curated list of Xposed/LSPosed module repositories.
  *
  * Usage:
- *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2|q3"]
+ *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N]
  *
- * What it does:
- *   1. Reads the existing list from data/repos.json (created if missing).
- *   2. Queries the GitHub repository search API with the queries below
- *      (by topic and by name/description).
- *   3. Merges results into the list, deduped by full_name, so repos that
- *      were already found on a previous run are NEVER added again — only
- *      new repos are appended (each gets an `added_at` timestamp).
- *   4. Writes the merged, star-sorted list back to data/repos.json.
+ * The list is built from two sources:
  *
- * Set the GITHUB_TOKEN env var to authenticate (raises the search rate
- * limit from 10 to 30 requests/minute). GitHub Actions passes its token
- * automatically via the workflow.
+ * 1. The OFFICIAL LSPosed module repository — the Xposed-Modules-Repo GitHub
+ *    org, the same data that powers modules.lsposed.org. Every repo there is
+ *    a module entry: the repo name is the module's package id, SUMMARY holds
+ *    the module name, SOURCE_URL points to the real source repository and
+ *    SCOPE lists the packages the module hooks.
+ *
+ * 2. GitHub search, to also discover modules that are NOT in the official
+ *    repository. Every candidate is verified as a real module by looking for
+ *    the marker files Xposed/LSPosed actually require in the source code:
+ *      - xposed_init   (classic Xposed entry point)
+ *      - module.prop   (LSPosed module properties)
+ *      - module.json   (LSPosed module repo format)
+ *    Marker paths are probed via raw.githubusercontent.com (free, does not
+ *    count against API rate limits). When GITHUB_TOKEN is set, candidates
+ *    that miss every probe get a full git-tree scan, which catches modules
+ *    with unusual directory layouts.
+ *
+ * Candidates that fail verification go into data/ignored.json so they are
+ * not re-checked on every run. Verified repos are stored in data/repos.json
+ * and are never duplicated — each run only appends NEW modules.
+ *
+ * Set GITHUB_TOKEN to authenticate (higher rate limits + full tree scan).
+ * GitHub Actions passes its token automatically via the workflow.
  */
 
 const fs = require("fs");
@@ -27,10 +40,17 @@ const path = require("path");
 const ROOT = path.join(__dirname, "..");
 const DATA_DIR = path.join(ROOT, "data");
 const DATA_FILE = path.join(DATA_DIR, "repos.json");
+const IGNORED_FILE = path.join(DATA_DIR, "ignored.json");
+
+const ORG = "Xposed-Modules-Repo"; // official LSPosed module repository
+
+// Repos inside the org that are NOT modules (org profile, submission page, etc.)
+const ORG_META_REPOS = new Set([".github", "modules", "submission", "test--123123"]);
 
 // GitHub search syntax. Edit these to widen/narrow what gets collected.
 const DEFAULT_QUERIES = [
   "topic:xposed-module",
+  "topic:lsposed-module",
   "topic:xposed",
   '"xposed module" in:name,description',
   '"xposed-module" in:name,description',
@@ -38,9 +58,34 @@ const DEFAULT_QUERIES = [
 
 const DEFAULT_MAX_PAGES = 5; // pages per query; 100 repos per page, API caps at 1000/query
 const DEFAULT_DELAY_MS = 1500; // politeness delay between API requests
+const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
+const CONCURRENCY = 24; // parallel fetches for verification / metadata
+
+// Marker files that identify a real Xposed/LSPosed module, probed at the
+// most common source-layout paths via raw.githubusercontent.com (no API quota).
+const PROBE_PATHS = [
+  "module.json",
+  "app/src/main/assets/module.prop",
+  "app/src/main/assets/xposed_init",
+  "assets/module.prop",
+  "assets/xposed_init",
+  "xposed/src/main/assets/xposed_init",
+  "xposed/src/main/assets/module.prop",
+  "module/src/main/assets/module.prop",
+  "module/src/main/assets/xposed_init",
+];
+
+// Any file with one of these basenames anywhere in a repo's git tree = module.
+const MARKER_BASENAMES = ["xposed_init", "module.prop", "module.json"];
 
 function parseArgs(argv) {
-  const args = { queries: DEFAULT_QUERIES, maxPages: DEFAULT_MAX_PAGES, delay: DEFAULT_DELAY_MS };
+  const args = {
+    queries: DEFAULT_QUERIES,
+    maxPages: DEFAULT_MAX_PAGES,
+    delay: DEFAULT_DELAY_MS,
+    noOrg: false,
+    ignoreTtlDays: DEFAULT_IGNORE_TTL_DAYS,
+  };
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
       case "--max-pages":
@@ -51,6 +96,12 @@ function parseArgs(argv) {
         break;
       case "--queries":
         args.queries = argv[++i].split("|").map((q) => q.trim()).filter(Boolean);
+        break;
+      case "--no-org":
+        args.noOrg = true;
+        break;
+      case "--ignore-ttl-days":
+        args.ignoreTtlDays = parseInt(argv[++i], 10) || DEFAULT_IGNORE_TTL_DAYS;
         break;
       default:
         console.warn(`Unknown argument: ${argv[i]}`);
@@ -71,6 +122,16 @@ function requestHeaders() {
     headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   }
   return headers;
+}
+
+function loadJson(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 // Keep only the fields the site needs, to keep repos.json small.
@@ -94,11 +155,6 @@ function pickRepo(item) {
   };
 }
 
-// Only exclude forks when the query doesn't already say something about forks.
-function withNoForks(query) {
-  return /\bfork:/i.test(query) ? query : `${query} fork:false`;
-}
-
 async function searchRepositories(query, maxPages, delay) {
   const found = [];
   for (let page = 1; page <= maxPages; page++) {
@@ -109,108 +165,363 @@ async function searchRepositories(query, maxPages, delay) {
     url.searchParams.set("sort", "stars");
     url.searchParams.set("order", "desc");
 
-    let res;
-    try {
-      res = await fetch(url, { headers: requestHeaders() });
-    } catch (err) {
-      console.warn(`  Network error on page ${page}: ${err.message}`);
+    const res = await githubGet(url);
+    if (!res) break;
+    if (!res.ok) {
+      if (res.rateLimited) return { found, stopped: true };
       break;
     }
-
-    if (!res.ok) {
-      const remaining = res.headers.get("x-ratelimit-remaining");
-      if (res.status === 403 || res.status === 429) {
-        console.warn(
-          `  Rate limited (HTTP ${res.status}), remaining requests: ${remaining ?? "?"}`
-        );
-        if (remaining === "0") return { found, stopped: true };
-        // Secondary rate limit: wait a bit and retry this page once.
-        console.warn("  Waiting 30s and retrying once...");
-        await sleep(30_000);
-        try {
-          res = await fetch(url, { headers: requestHeaders() });
-        } catch (err) {
-          console.warn(`  Network error on retry for page ${page}: ${err.message}`);
-          break;
-        }
-        if (!res.ok) {
-          console.warn(`  Still rate limited on retry (HTTP ${res.status}); moving on.`);
-          break;
-        }
-      } else {
-        console.warn(
-          `  GitHub API error ${res.status} for "${query}" (page ${page}): ${res.statusText}`
-        );
-        break;
-      }
-    }
-
     const body = await res.json();
     const items = Array.isArray(body.items) ? body.items : [];
     if (items.length === 0) break;
-    found.push(...items.map(pickRepo));
+    found.push(...items);
 
     const total = body.total_count ?? 0;
     console.log(`  [${query}] page ${page}: ${items.length} repos (${total} match in total)`);
 
-    // Stop when we have everything the API offers for this query.
     if (found.length >= total || items.length < 100) break;
     if (delay > 0) await sleep(delay);
   }
   return { found, stopped: false };
 }
 
+// Wraps fetch() with auth headers, a timeout and rate-limit awareness.
+async function githubGet(url) {
+  try {
+    const res = await fetch(url, { headers: requestHeaders(), signal: AbortSignal.timeout(20000) });
+    if (!res.ok && (res.status === 403 || res.status === 429)) {
+      const remaining = res.headers.get("x-ratelimit-remaining");
+      console.warn(`  Rate limited (HTTP ${res.status}), remaining: ${remaining ?? "?"}`);
+      return { ok: false, rateLimited: remaining === "0" };
+    }
+    return res;
+  } catch (err) {
+    console.warn(`  Network error: ${err.message}`);
+    return null;
+  }
+}
+
+// Only exclude forks when the query doesn't already say something about forks.
+function withNoForks(query) {
+  return /\bfork:/i.test(query) ? query : `${query} fork:false`;
+}
+
+// Crawl the official LSPosed module repository org.
+async function crawlOrgRepos(delay) {
+  const all = [];
+  for (let page = 1; ; page++) {
+    const url = new URL(`https://api.github.com/orgs/${ORG}/repos`);
+    url.searchParams.set("per_page", "100");
+    url.searchParams.set("page", String(page));
+    const res = await githubGet(url);
+    if (!res) break;
+    if (!res.ok) {
+      console.warn(`  Stopping org crawl (HTTP ${res.status}).`);
+      break;
+    }
+    const items = await res.json();
+    if (!Array.isArray(items) || items.length === 0) break;
+    all.push(...items);
+    console.log(`  [${ORG}] page ${page}: ${items.length} repos`);
+    if (items.length < 100) break;
+    if (delay > 0) await sleep(delay);
+  }
+  return all.filter((r) => !r.fork && !ORG_META_REPOS.has(r.name));
+}
+
+// Fetch a file straight from the git CDN — free, no API quota.
+async function rawFetch(fullName, filePath) {
+  const [owner, repo] = fullName.split("/");
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const url = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/HEAD/${encodedPath}`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (res.status === 200) return { ok: true, body: await res.text() };
+    return { ok: false, body: null };
+  } catch {
+    return { ok: false, body: null };
+  }
+}
+
+// Check the common marker-file locations. Stops at the first hit.
+async function probeRepo(fullName) {
+  for (const probePath of PROBE_PATHS) {
+    const r = await rawFetch(fullName, probePath);
+    if (r.ok) return { verified: true, marker: probePath, body: r.body };
+  }
+  return { verified: false, marker: null, body: null };
+}
+
+// Scan the whole git tree for marker files (catches unusual layouts).
+// Only used when a token is available; 1 API request per repo.
+async function treeCheck(repo) {
+  const branch = repo.default_branch || "HEAD";
+  const url = `https://api.github.com/repos/${repo.full_name}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+  const res = await githubGet(url);
+  if (!res || !res.ok) return { verified: false, marker: null };
+  try {
+    const body = await res.json();
+    const hit = (body.tree || [])
+      .map((f) => f.path)
+      .find((p) => MARKER_BASENAMES.includes(p.split("/").pop()));
+    return hit ? { verified: true, marker: hit } : { verified: false, marker: null };
+  } catch {
+    return { verified: false, marker: null };
+  }
+}
+
+// Extract name/version/author/description from the marker file we found.
+function parseMarkerBody(body, marker) {
+  if (!body) return null;
+  const base = marker.split("/").pop();
+  const meta = {};
+  if (base === "module.json") {
+    try {
+      const j = JSON.parse(body);
+      if (j && typeof j === "object") {
+        for (const key of ["name", "version", "author", "description", "type"]) {
+          if (j[key]) meta[key] = String(j[key]);
+        }
+      }
+    } catch {
+      /* not JSON */
+    }
+  } else if (base === "module.prop") {
+    for (const line of body.split(/\r?\n/)) {
+      const m = line.match(/^([\w.]+)\s*=\s*(.+)$/);
+      if (m && ["name", "version", "author", "description"].includes(m[1])) {
+        meta[m[1]] = m[2].trim();
+      }
+    }
+  }
+  return Object.keys(meta).length ? meta : null;
+}
+
+// Clean a fetched text file. Some entries store UTF-16 (with \0 padding).
+function cleanText(text) {
+  if (!text) return "";
+  return text.includes("\u0000") ? text.replace(/\u0000/g, "").trim() : text.trim();
+}
+
+// Official-entry metadata: SOURCE_URL (real repo), SUMMARY (module name),
+// SCOPE (hooked package ids). All raw fetches, cached after the first fetch.
+async function fetchOrgMeta(repo, prev) {
+  // Reuse previously fetched metadata (rarely changes), unless it's corrupt.
+  if (prev && prev.summary && !String(prev.summary).includes("\u0000")) {
+    return {
+      source_url: prev.source_url || "",
+      summary: prev.summary,
+      scope: Array.isArray(prev.scope) ? prev.scope : [],
+    };
+  }
+  const [src, summary, scope] = await Promise.all([
+    rawFetch(repo.full_name, "SOURCE_URL"),
+    rawFetch(repo.full_name, "SUMMARY"),
+    rawFetch(repo.full_name, "SCOPE"),
+  ]);
+  let scopeList = [];
+  if (scope.ok) {
+    try {
+      scopeList = JSON.parse(scope.body);
+      if (!Array.isArray(scopeList)) scopeList = [];
+    } catch {
+      scopeList = [];
+    }
+  }
+  return {
+    source_url: cleanText(src.body),
+    summary: cleanText(summary.body),
+    scope: scopeList.map(String),
+  };
+}
+
+// Run fn over items with bounded concurrency, preserving order.
+async function runPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function main() {
   const args = parseArgs(process.argv);
 
-  let existing = [];
-  if (fs.existsSync(DATA_FILE)) {
-    try {
-      existing = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-      if (!Array.isArray(existing)) existing = [];
-    } catch (err) {
-      console.warn(`Could not parse ${DATA_FILE}; starting fresh: ${err.message}`);
-      existing = [];
+  const existing = loadJson(DATA_FILE, []);
+  const existingList = Array.isArray(existing) ? existing : [];
+  const existingByKey = new Map(existingList.map((r) => [r.full_name, r]).filter(([k]) => k));
+  let ignored = loadJson(IGNORED_FILE, {});
+  if (!ignored || typeof ignored !== "object" || Array.isArray(ignored)) ignored = {};
+
+  const final = new Map();
+  const nowIso = new Date().toISOString();
+  const ignoreTtlMs = args.ignoreTtlDays * 24 * 60 * 60 * 1000;
+
+  // ---- Source 1: the official LSPosed module repository ----
+  const orgBySource = new Map(); // "owner/repo" of SOURCE_URL -> official entry
+  let orgCount = 0;
+  if (!args.noOrg) {
+    console.log(`Source 1: official LSPosed module repo (${ORG})...`);
+    const orgRepos = await crawlOrgRepos(args.delay);
+    const orgEntries = await runPool(orgRepos, CONCURRENCY, async (repo) => {
+      const prev = existingByKey.get(repo.name);
+      const meta = await fetchOrgMeta(repo, prev);
+      return {
+        full_name: repo.name, // package id, e.g. "com.chrxw.purenga"
+        html_url: meta.source_url || repo.html_url,
+        source_url: meta.source_url,
+        org_repo: repo.full_name,
+        summary: meta.summary || repo.description || "",
+        description: meta.summary || repo.description || "",
+        scope: meta.scope,
+        archived: !!repo.archived,
+        added_at: prev ? prev.added_at : undefined, // baseline entries are not "new"
+        verified: true,
+        source: "lsposed-repo",
+      };
+    });
+    for (const entry of orgEntries) {
+      final.set(entry.full_name, entry);
+      orgCount++;
+      const m = entry.source_url ? entry.source_url.match(/github\.com\/([^/]+\/[^/?#]+)/i) : null;
+      if (m) orgBySource.set(m[1].toLowerCase(), entry);
     }
+    console.log(`  ${orgCount} official module entries`);
   }
 
-  // Map of known repos so we never re-add the same repository.
-  const known = new Map(existing.map((repo) => [repo.full_name, repo]));
-
-  console.log(`Searching GitHub for Xposed module repos (${args.queries.length} query/queries)...`);
+  // ---- Source 2: GitHub search, verified against module markers ----
+  console.log(`Source 2: searching GitHub (${args.queries.length} query/queries)...`);
+  const candidates = [];
   let rateLimited = false;
   for (const query of args.queries) {
     const { found, stopped } = await searchRepositories(query, args.maxPages, args.delay);
-    let added = 0;
-    for (const repo of found) {
-      const previous = known.get(repo.full_name);
-      if (previous) {
-        // Known repo: refresh stats/metadata but keep the original added_at date.
-        known.set(repo.full_name, { ...repo, added_at: previous.added_at || repo.added_at });
-      } else {
-        repo.added_at = new Date().toISOString();
-        known.set(repo.full_name, repo);
-        added++;
-      }
-    }
-    console.log(`  -> ${added} new repo(s) from "${query}"`);
+    candidates.push(...found);
     if (stopped) {
       rateLimited = true;
       break;
     }
   }
 
-  const all = [...known.values()].sort((a, b) => b.stargazers_count - a.stargazers_count);
+  // Re-verify unverified entries from previous runs (migration), so repos that
+  // were added before verification existed don't stay in the list by accident.
+  for (const repo of existingList) {
+    if (!repo.verified && repo.full_name) {
+      candidates.push({
+        full_name: repo.full_name,
+        html_url: repo.html_url,
+        description: repo.description,
+        owner: repo.owner || { login: "" },
+        topics: repo.topics || [],
+        archived: repo.archived,
+      });
+    }
+  }
+
+  // Skip repos owned by the official org (already covered by the crawl).
+  const seen = new Set();
+  const toVerify = [];
+  for (const repo of candidates) {
+    if (!repo.full_name) continue;
+    if (repo.owner && repo.owner.login && repo.owner.login.toLowerCase() === ORG.toLowerCase()) continue;
+    if (seen.has(repo.full_name.toLowerCase())) continue;
+    seen.add(repo.full_name.toLowerCase());
+    toVerify.push(repo);
+  }
+  console.log(`  ${toVerify.length} unique candidates to verify`);
+
+  const results = await runPool(toVerify, CONCURRENCY, async (repo) => {
+    const orgEntry = orgBySource.get(repo.full_name.toLowerCase());
+    if (orgEntry) return { repo, verdict: "org" };
+
+    const ignoredKey = repo.full_name.toLowerCase();
+    const ign = ignored[ignoredKey];
+    if (ign && ign.checked_at && Date.now() - new Date(ign.checked_at).getTime() < ignoreTtlMs) {
+      return { repo, verdict: "ignored" };
+    }
+
+    const probe = await probeRepo(repo.full_name);
+    if (probe.verified) {
+      return {
+        repo,
+        verdict: "verified",
+        marker: probe.marker,
+        metadata: parseMarkerBody(probe.body, probe.marker),
+      };
+    }
+    if (process.env.GITHUB_TOKEN) {
+      const tree = await treeCheck(repo);
+      if (tree.verified) return { repo, verdict: "verified", marker: tree.marker, metadata: null };
+    }
+    return { repo, verdict: "rejected" };
+  });
+
+  let verified = 0;
+  let rejected = 0;
+  let merged = 0;
+  for (const { repo, verdict, marker, metadata } of results) {
+    if (verdict === "ignored") continue;
+    if (verdict === "rejected") {
+      ignored[repo.full_name.toLowerCase()] = { checked_at: nowIso };
+      rejected++;
+      continue;
+    }
+
+    const orgEntry = orgBySource.get(repo.full_name.toLowerCase());
+    const prev = existingByKey.get(repo.full_name);
+    let entry;
+    if (orgEntry) {
+      // Search found the real source repo of an official entry: merge the two.
+      entry = {
+        ...pickRepo(repo),
+        package: orgEntry.full_name,
+        summary: orgEntry.summary,
+        scope: orgEntry.scope,
+        org_repo: orgEntry.org_repo,
+        source_url: orgEntry.source_url,
+        verified: true,
+        source: "lsposed-repo+search",
+      };
+      final.delete(orgEntry.full_name); // the bare official entry is upgraded
+      merged++;
+    } else {
+      entry = { ...pickRepo(repo), verified: true, source: "search" };
+    }
+    if (marker) entry.marker = marker;
+    if (metadata && Object.keys(metadata).length) entry.metadata = metadata;
+    entry.added_at = prev ? prev.added_at : nowIso;
+    final.set(entry.full_name, entry);
+    verified++;
+  }
+
+  // Sort: real repos by stars (desc), official-only entries (no star count)
+  // sink to the bottom, then alphabetically.
+  const all = [...final.values()].sort((a, b) => {
+    const sa = typeof a.stargazers_count === "number" ? a.stargazers_count : -1;
+    const sb = typeof b.stargazers_count === "number" ? b.stargazers_count : -1;
+    if (sb !== sa) return sb - sa;
+    return (a.full_name || "").localeCompare(b.full_name || "");
+  });
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2) + "\n");
+  fs.writeFileSync(IGNORED_FILE, JSON.stringify(ignored, null, 2) + "\n");
 
+  const newCount = [...final.keys()].filter((k) => !existingByKey.has(k)).length;
   console.log("");
-  console.log(`Total repos: ${all.length} (had ${existing.length}, added ${all.length - existing.length})`);
-  console.log(`Wrote ${DATA_FILE}`);
+  console.log(`Official entries: ${orgCount}`);
+  console.log(`Verified from search: ${verified} (${merged} merged with official entries)`);
+  console.log(`Rejected (not modules): ${rejected}`);
+  console.log(`Ignored cache: ${Object.keys(ignored).length} repos (re-checked after ${args.ignoreTtlDays}d)`);
+  console.log(`Total modules: ${all.length} (had ${existingList.length}, +${newCount} new)`);
+  console.log(`Wrote ${DATA_FILE} and ${IGNORED_FILE}`);
   if (rateLimited) {
     console.warn(
-      "Note: hit the GitHub API rate limit; the list may be incomplete. Set GITHUB_TOKEN for higher limits."
+      "Note: GitHub API rate limit hit; the list may be incomplete. Set GITHUB_TOKEN for higher limits and full git-tree verification."
     );
   }
 }
