@@ -169,7 +169,7 @@ function render(data) {
   main { flex: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px 60px; width: 100%; }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
     gap: 16px;
   }
   .card {
@@ -199,17 +199,18 @@ function render(data) {
   .tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .tag {
     font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
-    background: rgba(56, 189, 248, .12); color: var(--accent-2);
-    border: 1px solid rgba(56, 189, 248, .25);
+    background: var(--bg-soft); color: var(--muted);
+    border: 1px solid var(--border);
   }
   .tag.more { background: var(--bg-soft); color: var(--muted); border-color: var(--border); }
   .card-foot {
-    display: flex; align-items: center; gap: 14px;
+    display: flex; align-items: center; flex-wrap: wrap; row-gap: 8px; gap: 14px;
     font-size: 12.5px; color: var(--muted);
     border-top: 1px solid var(--border); padding-top: 12px;
     margin-top: auto;
   }
-  .stars { color: var(--accent-2); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+  .stars { color: var(--text); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+  .star-icon { color: #e8b339; }
   .lang { display: inline-flex; align-items: center; gap: 5px; }
   .lang-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dot, #8b98a5); }
   .updated { margin-left: auto; }
@@ -221,7 +222,7 @@ function render(data) {
   .badges .badge + .badge { margin-left: 0; }
   .official-chip { color: var(--accent-2); font-weight: 700; font-size: 12px; letter-spacing: .3px; }
   .app-meta {
-    display: flex; align-items: baseline; gap: 6px;
+    display: flex; align-items: baseline; flex-wrap: wrap; row-gap: 4px; gap: 6px;
     font-size: 12.5px; color: var(--muted);
   }
   .app-version {
@@ -237,14 +238,19 @@ function render(data) {
     padding: 1px 7px; border-radius: 999px;
   }
   .release-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 12px; font-weight: 700; color: var(--accent-2);
-    background: rgba(56, 189, 248, .1); border: 1px solid rgba(56, 189, 248, .35);
-    padding: 2px 9px; border-radius: 6px; text-decoration: none;
-    transition: background .15s, border-color .15s;
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-left: auto; align-self: center;
+    font-size: 12px; font-weight: 700; color: #06121f;
+    background: var(--accent); border: 1px solid var(--accent);
+    padding: 4px 12px; border-radius: 6px; text-decoration: none;
+    transition: background .15s, border-color .15s, opacity .15s;
   }
-  .release-chip:hover { background: rgba(56, 189, 248, .2); border-color: var(--accent); }
-  .release-chip.prerelease { border-style: dashed; opacity: .85; }
+  .release-chip:hover { background: #0ea5e9; border-color: #0ea5e9; }
+  .release-chip.prerelease {
+    border-style: dashed; opacity: .85;
+    background: rgba(56, 189, 248, .1); color: var(--accent-2);
+  }
+  .release-chip.prerelease:hover { background: rgba(56, 189, 248, .2); }
   .empty {
     text-align: center; color: var(--muted); padding: 60px 0;
     font-size: 15px;
@@ -252,17 +258,52 @@ function render(data) {
   .hidden { display: none; }
   footer {
     position: sticky; bottom: 0;
-    text-align: center; color: var(--muted); font-size: 13px;
-    padding: 14px 24px;
     background: rgba(11, 15, 20, .88);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
   }
+  .footer-inner {
+    max-width: 1200px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 24px;
+    color: var(--muted); font-size: 12.5px;
+    text-align: center;
+  }
+
+  .gen-line b { color: var(--accent); font-weight: 600; }
+  #gen-date { color: var(--text); font-weight: 600; }
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
+
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1024px) {
+    .grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+  }
+  @media (max-width: 900px) {
+    .toolbar { gap: 10px; }
+    .search-wrap { flex: 1 1 100%; }
+    .grid { gap: 14px; }
+  }
   @media (max-width: 640px) {
-    .grid { grid-template-columns: 1fr; }
-    .logo { font-size: 30px; }
+    header { padding: 40px 16px 28px; }
+    .logo { font-size: 26px; }
+    .tagline { font-size: 14px; }
+    .stats { gap: 8px; margin-top: 18px; }
+    .stat { padding: 6px 14px; font-size: 13px; }
+    .toolbar { padding: 10px 16px; margin-bottom: 20px; }
+    select { flex: 1 1 45%; padding: 9px 10px; }
+    main { padding: 0 16px 48px; }
+    .grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .card { padding: 16px; }
+    .footer-inner { gap: 8px; padding: 10px 16px; font-size: 12px; }
+  }
+  @media (max-width: 480px) {
+    .seg { display: flex; width: 100%; }
+    .seg button { flex: 1; padding: 8px 6px; }
+    #count { display: none; }
+    .badges { flex-wrap: wrap; }
+    .toolbar { gap: 8px; }
   }
 </style>
 </head>
@@ -315,7 +356,9 @@ function render(data) {
 </main>
 
 <footer>
-  Generated by a <a href="https://github.com/features/actions">GitHub Actions</a> workflow on <span id="gen-date"></span>
+  <div class="footer-inner">
+  <span class="gen-line">Generated using <a href="https://github.com/features/actions" target="_blank" rel="noopener"><b>GitHub Actions</b></a> on <span id="gen-date"></span></span>
+  </div>
 </footer>
 
 <script id="repo-data" type="application/json">${json}</script>
@@ -360,7 +403,7 @@ function render(data) {
   document.getElementById("stat-new").textContent = fmtFull.format(DATA.fresh);
   const gen = new Date(DATA.generated_at);
   document.getElementById("stat-updated").textContent = gen.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-  document.getElementById("gen-date").textContent = gen.toLocaleString();
+  document.getElementById("gen-date").textContent = gen.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
   function timeAgo(iso) {
     if (!iso) return "";
@@ -452,6 +495,21 @@ function render(data) {
         date.title = "Released " + new Date(release.published_at).toLocaleDateString();
         meta.append(date);
       }
+      if (release.tag) {
+        const rel = document.createElement("a");
+        rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
+        rel.href = release.apk_url || release.html_url || "#";
+        rel.target = "_blank";
+        rel.rel = "noopener";
+        rel.textContent = "\u2b07 Download latest";
+        rel.title =
+          "Release " + (release.name || release.tag) +
+          (release.published_at
+            ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
+            : "") +
+          (release.apk_url ? " \u00b7 direct APK download" : "");
+        meta.append(rel);
+      }
       c.append(meta);
     }
 
@@ -481,7 +539,10 @@ function render(data) {
     if (typeof repo.stargazers_count === "number") {
       const stars = document.createElement("span");
       stars.className = "stars";
-      stars.textContent = "★ " + fmt.format(repo.stargazers_count);
+      const starIcon = document.createElement("span");
+      starIcon.className = "star-icon";
+      starIcon.textContent = "★";
+      stars.append(starIcon, document.createTextNode(" " + fmt.format(repo.stargazers_count)));
       foot.append(stars);
     } else if (isOfficialOnly) {
       const chip = document.createElement("span");
@@ -521,22 +582,6 @@ function render(data) {
       badges.append(b);
     }
     if (badges.childElementCount) foot.append(badges);
-
-    if (release.tag) {
-      const rel = document.createElement("a");
-      rel.className = "release-chip" + (release.prerelease ? " prerelease" : "");
-      rel.href = release.apk_url || release.html_url || "#";
-      rel.target = "_blank";
-      rel.rel = "noopener";
-      rel.textContent = "\u2b07 Download latest";
-      rel.title =
-        "Release " + (release.name || release.tag) +
-        (release.published_at
-          ? " \u00b7 " + new Date(release.published_at).toLocaleDateString()
-          : "") +
-        (release.apk_url ? " \u00b7 direct APK download" : "");
-      foot.append(rel);
-    }
 
     const updated = document.createElement("span");
     updated.className = "updated";
