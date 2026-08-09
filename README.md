@@ -60,7 +60,7 @@ The site features:
 - **Filters**: All / Official / Unofficial · Active / Archived · libxposed API level (102+, 93+, no info)
 - **Sorting**: updated · stars · name · release · added
 - **Cards**: avatar, owner · package id, description, version + libxposed API + released date, tags, stars, badges
-- **Download latest**: links the newest release that actually ships an `.apk` (releases with only zips/tarballs fall back to a "View release" link)
+- **Download**: links the newest release that actually ships an `.apk` (releases with only zips/tarballs fall back to a "View release" link)
 - **Search** across names, owners, and package ids
 - Responsive layout for phones and desktops
 
