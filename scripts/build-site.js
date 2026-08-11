@@ -21,7 +21,46 @@ const OUT_FILE = path.join(SITE_DIR, "index.html");
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-function main() {
+const VISITOR_STATS_URL =
+  "https://www.freevisitorcounters.com/en/home/stats/id/1617016";
+const VISITOR_STATS_LABELS = {
+  Today: "today",
+  Yesterday: "yesterday",
+  All: "total",
+  Online: "online",
+};
+
+async function fetchVisitorStats() {
+  // Best-effort: returns {} when the stats page is unreachable or changes shape,
+  // so a counter outage never breaks the build.
+  try {
+    const response = await fetch(VISITOR_STATS_URL, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return {};
+    const page = await response.text();
+    const overview = page.match(
+      /<th colspan="2">Visitors Overview<\/th>([\s\S]*?)<\/tbody>/
+    );
+    if (!overview) return {};
+    const stats = {};
+    const cell = /<td>(.*?)<\/td>\s*<td>(.*?)<\/td>/g;
+    let match;
+    while ((match = cell.exec(overview[1]))) {
+      const label = match[1].trim();
+      const value = match[2].trim();
+      if (label in VISITOR_STATS_LABELS && /^\d+$/.test(value)) {
+        stats[VISITOR_STATS_LABELS[label]] = Number(value);
+      }
+    }
+    return stats;
+  } catch {
+    return {};
+  }
+}
+
+async function main() {
   if (!fs.existsSync(DATA_FILE)) {
     console.error(`Missing ${DATA_FILE}. Run "node scripts/find-repos.js" first.`);
     process.exit(1);
@@ -47,12 +86,15 @@ function main() {
     total: repos.length,
     fresh: freshCount,
     official: officialCount,
+    visitorStats: await fetchVisitorStats(),
     repos,
   };
 
   fs.mkdirSync(SITE_DIR, { recursive: true });
   fs.writeFileSync(OUT_FILE, render(data));
-  console.log(`Built ${OUT_FILE} (${repos.length} repos, ${freshCount} new this week)`);
+  console.log(
+    `Built ${OUT_FILE} (${repos.length} repos, ${freshCount} new this week, visitor stats: ${JSON.stringify(data.visitorStats)})`
+  );
 }
 
 function render(data) {
@@ -275,6 +317,94 @@ function render(data) {
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
 
+  .visitor-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin: 16px 0 0;
+  }
+  .vs-caption {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+  }
+  .vs-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    color: #f0b429;
+  }
+  .vs-live::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+    animation: vs-blink 1.6s ease-in-out infinite;
+  }
+  .vs-live.live { color: var(--new); }
+  .vs-live.cached { color: #f0b429; }
+  @keyframes vs-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+  }
+  .vs-items {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px 28px;
+    flex-wrap: wrap;
+    font-size: 14px;
+  }
+  .visitor-stats .vs-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .visitor-stats strong {
+    color: var(--text);
+    font-size: 24px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .visitor-stats .vs-item > span {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .site-counter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 28px auto 4px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .site-counter a {
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  .site-counter a:hover {
+    color: var(--text);
+  }
+  .site-counter img,
+  .site-counter br {
+    display: none;
+  }
+
 
   /* ---------- responsive ---------- */
   @media (max-width: 1024px) {
@@ -317,6 +447,15 @@ function render(data) {
     <span class="stat"><b id="stat-new">0</b> new this week</span>
     <span class="stat">Updated <b id="stat-updated">—</b></span>
   </div>
+  <div class="visitor-stats" aria-label="Visitor statistics">
+    <span class="vs-caption">Visitor Info <span id="vsLive" class="vs-live" title="">syncing</span></span>
+    <div class="vs-items">
+      <span class="vs-item"><strong id="vsToday">–</strong><span>today</span></span>
+      <span class="vs-item"><strong id="vsYesterday">–</strong><span>yesterday</span></span>
+      <span class="vs-item"><strong id="vsOnline">–</strong><span>online</span></span>
+      <span class="vs-item"><strong id="vsTotal">–</strong><span>all time</span></span>
+    </div>
+  </div>
 </header>
 
 <div class="toolbar">
@@ -353,6 +492,11 @@ function render(data) {
 <main>
   <div id="grid" class="grid"></div>
   <p id="empty" class="empty hidden">No repos match your search.</p>
+  <div class="site-counter" aria-label="Visitor counter">
+    <a href="https://www.free-counters.org/" target="_blank" rel="noopener">Visitor counter by Free-Counters.org</a>
+    <script type="text/javascript" src="https://www.freevisitorcounters.com/auth.php?id=28c20f5ef0c0a58b47f5f1ddbeac7b5afc251e1d"></script>
+    <script type="text/javascript" src="https://www.freevisitorcounters.com/en/home/counter/1617016/t/0"></script>
+  </div>
 </main>
 
 <footer>
@@ -404,6 +548,70 @@ function render(data) {
   const gen = new Date(DATA.generated_at);
   document.getElementById("stat-updated").textContent = gen.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   document.getElementById("gen-date").textContent = gen.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+
+  const visitorStats = DATA.visitorStats || {};
+  if (visitorStats.today != null) document.getElementById("vsToday").textContent = visitorStats.today;
+  if (visitorStats.yesterday != null) document.getElementById("vsYesterday").textContent = visitorStats.yesterday;
+  if (visitorStats.online != null) document.getElementById("vsOnline").textContent = visitorStats.online;
+  if (visitorStats.total != null) document.getElementById("vsTotal").textContent = visitorStats.total;
+
+  // Refresh visitor stats live from the counter service via a CORS proxy.
+  // Retries across two proxy endpoints with backoff; marks the badge LIVE on
+  // success or CACHED if every attempt fails, so stale data is never silent.
+  (function refreshVisitorStats() {
+    const badge = document.getElementById("vsLive");
+    if (!badge) return;
+    const statsUrl = "https://www.freevisitorcounters.com/en/home/stats/id/1617016";
+    const endpoints = [
+      "https://api.allorigins.win/raw?url=" + encodeURIComponent(statsUrl),
+      "https://api.allorigins.win/get?url=" + encodeURIComponent(statsUrl),
+    ];
+    const applyStats = (page) => {
+      const overview = page.match(/<th colspan="2">Visitors Overview\\/th>([\\s\\S]*?)\\/tbody>/);
+      if (!overview) return false;
+      const fields = { Today: "vsToday", Yesterday: "vsYesterday", All: "vsTotal", Online: "vsOnline" };
+      const cell = /<td>(.*?)\\/td>\\s*<td>(.*?)\\/td>/g;
+      let match;
+      let updated = false;
+      while ((match = cell.exec(overview[1]))) {
+        const label = match[1].trim();
+        const value = match[2].trim();
+        if (fields[label] && /^\\d+$/.test(value)) {
+          document.getElementById(fields[label]).textContent = value;
+          updated = true;
+        }
+      }
+      return updated;
+    };
+    const tryEndpoint = (index, attempt) => {
+      return fetch(endpoints[index % endpoints.length])
+        .then((response) => {
+          if (!response.ok) throw new Error("proxy " + response.status);
+          return index % 2 === 0 ? response.text() : response.json();
+        })
+        .then((payload) => {
+          const page = index % 2 === 0 ? payload : (payload.contents || "");
+          if (!applyStats(page)) throw new Error("unparseable stats page");
+          badge.classList.remove("cached");
+          badge.classList.add("live");
+          badge.textContent = "live";
+          badge.title = "Updated just now";
+        })
+        .catch((error) => {
+          if (attempt < 5) {
+            return new Promise((resolve) => setTimeout(resolve, 900 + attempt * 700)).then(() =>
+              tryEndpoint(index + 1, attempt + 1)
+            );
+          }
+          throw error;
+        });
+    };
+    tryEndpoint(0, 0).catch(() => {
+      badge.classList.add("cached");
+      badge.textContent = "cached";
+      badge.title = "Live refresh failed; showing last generated values";
+    });
+  })();
 
   function timeAgo(iso) {
     if (!iso) return "";
@@ -678,8 +886,7 @@ function render(data) {
 
   el.search.addEventListener("input", render);
   el.sort.addEventListener("change", render);
-  el.api.addEventListener("change", render);
-  render();
+  el.api.addEventListener("change", render);  render();
 })();
 </script>
 </body>
@@ -687,4 +894,8 @@ function render(data) {
 `;
 }
 
-main();
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
