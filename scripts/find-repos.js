@@ -52,13 +52,15 @@ const ORG_META_REPOS = new Set([".github", "modules", "submission", "test--12312
 const DEFAULT_QUERIES = [
   "topic:xposed-module",
   "topic:lsposed-module",
+  "topic:lsposed",
+  "topic:libxposed",
   "topic:xposed",
   '"xposed module" in:name,description',
   '"xposed-module" in:name,description',
 ];
 
-const DEFAULT_MAX_PAGES = 5; // pages per query; 100 repos per page, API caps at 1000/query
-const DEFAULT_DELAY_MS = 1500; // politeness delay between API requests
+const DEFAULT_MAX_PAGES = 10; // pages per query; 100 repos per page, API caps at 1000/query
+const DEFAULT_DELAY_MS = 2500; // stays under GitHub's 30 searches per minute
 const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
 const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this long
 const DEFAULT_PACKAGE_RETRY_DAYS = 7; // re-probe APK manifests that could not be read
