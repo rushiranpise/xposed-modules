@@ -42,6 +42,8 @@ GitHub search finds modules that are **not** in the official repository. Every c
 
 Marker paths are probed via `raw.githubusercontent.com` (free — does not count against API rate limits). When `GITHUB_TOKEN` is set (the workflow passes it automatically), candidates that miss every probe get a full git-tree scan, which catches modules with unusual directory layouts.
 
+Search-found repos do not have a package id in their name, unlike the official org. The collector reads the real id from the release APK's binary `AndroidManifest.xml` using HTTP range requests: it fetches the ZIP central directory and that one manifest entry, so only a few KB are read instead of the whole APK. The result is stored as `package` and reused forever; APKs whose manifest cannot be read are retried after `--package-retry-days` (7 by default).
+
 Candidates that fail verification go into `data/ignored.json` so they are not re-checked on every run (the file is generated, not committed).
 
 ## Current stats
@@ -83,14 +85,18 @@ node scripts/build-site.js
 ```
 node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"]
                             [--no-org] [--ignore-ttl-days N] [--release-ttl-days N]
-                            [--api-scan N]
+                            [--api-scan N] [--package-retry-days N] [--no-package-scan]
 ```
 
 - `--no-org` — skip the official org crawl
 - `--ignore-ttl-days` — days before a failed candidate is re-checked (default: 30)
-- `--release-ttl-days` — days before a cached release is refreshed (default: 1)
+- `--release-ttl-days` — days before a cached release is refreshed (default: 7)
 - `--api-scan N` — re-scan module API metadata for `N` repos per run
+- `--package-retry-days` — days before an unreadable APK manifest is probed again (default: 7)
+- `--no-package-scan` — skip the APK manifest pass
 - `--queries` — override the default GitHub search queries
+
+Releases that ship no APK, and entries with no release at all, are checked again on every run instead of being cached for the TTL. A failed release request is retried once in the same run, so a module published since the last run is picked up the next day.
 
 ## Data format
 
@@ -108,6 +114,8 @@ node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"]
 | `source` | `lsposed-repo`, `search`, or `lsposed-repo+search` |
 | `marker` | which marker was found (`xposed_init` / `module.prop` / `module.json`) |
 | `scope` | package ids the module hooks |
+| `package` | package id; official entries imply it from `org_repo`, search entries get it from the release APK manifest |
+| `package_checked_at` | when an APK manifest could not be read; retried after `--package-retry-days` |
 | `added_at` | when this repo was first added to the list |
 | `metadata` | parsed `module.prop` info: name, version, versionCode, author, `minApi`, `targetApi` |
 | `release` | newest APK-bearing release: tag, name, `published_at`, `html_url`, `apk_url` |

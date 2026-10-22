@@ -5,7 +5,7 @@
  * Build a curated list of Xposed/LSPosed module repositories.
  *
  * Usage:
- *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N] [--release-ttl-days N] [--api-scan N]
+ *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N] [--release-ttl-days N] [--api-scan N] [--package-retry-days N] [--no-package-scan]
  *
  * The list is built from two sources:
  *
@@ -36,6 +36,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const ROOT = path.join(__dirname, "..");
 const DATA_DIR = path.join(ROOT, "data");
@@ -60,7 +61,9 @@ const DEFAULT_MAX_PAGES = 5; // pages per query; 100 repos per page, API caps at
 const DEFAULT_DELAY_MS = 1500; // politeness delay between API requests
 const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
 const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this long
+const DEFAULT_PACKAGE_RETRY_DAYS = 7; // re-probe APK manifests that could not be read
 const CONCURRENCY = 24; // parallel fetches for verification / metadata
+const PACKAGE_CONCURRENCY = 8; // parallel APK manifest probes (small range requests)
 
 // Marker files that identify a real Xposed/LSPosed module, probed at the
 // most common source-layout paths via raw.githubusercontent.com (no API quota).
@@ -87,6 +90,8 @@ function parseArgs(argv) {
     noOrg: false,
     ignoreTtlDays: DEFAULT_IGNORE_TTL_DAYS,
     releaseTtlDays: DEFAULT_RELEASE_TTL_DAYS,
+    packageRetryDays: DEFAULT_PACKAGE_RETRY_DAYS,
+    packageScan: true,
     apiScan: 0,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -108,6 +113,12 @@ function parseArgs(argv) {
         break;
       case "--release-ttl-days":
         args.releaseTtlDays = parseInt(argv[++i], 10) || DEFAULT_RELEASE_TTL_DAYS;
+        break;
+      case "--package-retry-days":
+        args.packageRetryDays = parseInt(argv[++i], 10) || DEFAULT_PACKAGE_RETRY_DAYS;
+        break;
+      case "--no-package-scan":
+        args.packageScan = false;
         break;
       case "--api-scan": {
         // Force a git-tree scan for module.prop/module.json even without a token
@@ -205,6 +216,18 @@ async function searchRepositories(query, maxPages, delay) {
     if (delay > 0) await sleep(delay);
   }
   return { found, stopped: false };
+}
+
+// githubGet with a few backoff retries for network errors and 5xx responses.
+async function githubGetWithRetry(url, attempts = 3) {
+  let last = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const res = await githubGet(url);
+    if (res && (res.ok || res.rateLimited || res.status === 404)) return res;
+    last = res;
+    if (attempt < attempts - 1) await sleep(1000 * (attempt + 1));
+  }
+  return last;
 }
 
 // Wraps fetch() with auth headers, a timeout and rate-limit awareness.
@@ -402,6 +425,249 @@ function cleanText(text) {
   return text.includes("\u0000") ? text.replace(/\u0000/g, "").trim() : text.trim();
 }
 
+// ---- Package ids from release APKs -----------------------------------------
+// Search-found repos carry no package id: only the official org puts it in the
+// repo name. The APK always does, inside its binary AndroidManifest.xml, so
+// read that entry straight out of the ZIP with a few small range requests
+// instead of downloading the whole APK. Successful results are stored forever;
+// failures are retried after --package-retry-days.
+
+const PACKAGE_ID_RE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
+// Only relevant when a CDN ignores Range and would send the whole APK.
+const MAX_APK_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+const RANGE_TIMEOUT_MS = 20000;
+
+function u16(buf, off) {
+  return buf.readUInt16LE(off);
+}
+
+function u32(buf, off) {
+  return buf.readUInt32LE(off);
+}
+
+function isPackageId(value) {
+  return typeof value === "string" && PACKAGE_ID_RE.test(value);
+}
+
+async function rangeGet(url, start, end) {
+  const res = await fetch(url, {
+    headers: { Range: `bytes=${start}-${end}`, "User-Agent": "xposed-modules-directory" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(RANGE_TIMEOUT_MS),
+  });
+  const contentRange = res.headers.get("content-range") || "";
+  const totalMatch = contentRange.match(/\/(\d+)$/);
+  if (res.status === 206) {
+    return {
+      buffer: Buffer.from(await res.arrayBuffer()),
+      total: totalMatch ? Number(totalMatch[1]) : null,
+    };
+  }
+  if (res.status === 200) {
+    // Range was ignored. Small APKs are still fine; large ones are not worth it.
+    const length = Number(res.headers.get("content-length") || 0);
+    if (length > MAX_APK_DOWNLOAD_BYTES) {
+      await res.body?.cancel();
+      throw new Error("server ignored Range");
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { buffer: buf.subarray(start, Math.min(end + 1, buf.length)), total: buf.length };
+  }
+  throw new Error(`HTTP ${res.status}`);
+}
+
+async function rangeGetWithRetry(url, start, end, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await rangeGet(url, start, end);
+    } catch (error) {
+      lastError = error;
+      const message = String(error.message || "");
+      // 4xx other than 429 will not change on a retry.
+      if (/^HTTP 4\d\d$/.test(message) && !message.includes("429")) break;
+      if (attempt < attempts - 1) await sleep(1000 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function findEocd(buf) {
+  const min = Math.max(0, buf.length - 65557);
+  for (let i = buf.length - 22; i >= min; i--) {
+    if (u32(buf, i) === 0x06054b50) return i;
+  }
+  return -1;
+}
+
+// Finds the ZIP entry for AndroidManifest.xml in a central directory buffer.
+function findManifestEntry(cd) {
+  let p = 0;
+  while (p + 46 <= cd.length && u32(cd, p) === 0x02014b50) {
+    const method = u16(cd, p + 10);
+    const compSize = u32(cd, p + 20);
+    const nameLen = u16(cd, p + 28);
+    const extraLen = u16(cd, p + 30);
+    const commentLen = u16(cd, p + 32);
+    const localOffset = u32(cd, p + 42);
+    const name = cd.toString("utf8", p + 46, p + 46 + nameLen);
+    if (name === "AndroidManifest.xml") return { method, compSize, localOffset };
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return null;
+}
+
+function parseStringPool(buf, start) {
+  const stringCount = u32(buf, start + 8);
+  const flags = u32(buf, start + 16);
+  const stringsStart = u32(buf, start + 20);
+  const utf8 = (flags & 0x100) !== 0;
+  const strings = [];
+  for (let i = 0; i < stringCount; i++) {
+    const off = u32(buf, start + 28 + i * 4);
+    let p = start + stringsStart + off;
+    if (utf8) {
+      let len = buf[p++];
+      if (len & 0x80) len = ((len & 0x7f) << 8) | buf[p++];
+      let byteLen = buf[p++];
+      if (byteLen & 0x80) byteLen = ((byteLen & 0x7f) << 8) | buf[p++];
+      strings.push(buf.toString("utf8", p, p + byteLen));
+    } else {
+      let len = u16(buf, p);
+      p += 2;
+      if (len & 0x8000) {
+        len = ((len & 0x7fff) << 16) | u16(buf, p);
+        p += 2;
+      }
+      strings.push(buf.toString("utf16le", p, p + len * 2));
+    }
+  }
+  return strings;
+}
+
+// Pulls the package attribute out of a binary AndroidManifest.xml.
+function readPackageFromManifest(buf) {
+  if (buf.length < 8 || u16(buf, 0) !== 0x0003) return null;
+  let off = 8;
+  let pool = null;
+  while (off + 8 <= buf.length) {
+    const type = u16(buf, off);
+    const size = u32(buf, off + 4);
+    if (size < 8 || off + size > buf.length) break;
+    if (type === 0x0001) {
+      pool = parseStringPool(buf, off);
+    } else if (type === 0x0102 && pool) {
+      const elementName = pool[u32(buf, off + 20)];
+      if (elementName === "manifest") {
+        const attrStart = u16(buf, off + 24);
+        const attrSize = u16(buf, off + 26);
+        const attrCount = u16(buf, off + 28);
+        for (let i = 0; i < attrCount; i++) {
+          const attr = off + 16 + attrStart + i * attrSize;
+          if (attr + 20 > buf.length) break;
+          if (pool[u32(buf, attr + 4)] !== "package") continue;
+          const raw = u32(buf, attr + 8);
+          const dataType = buf.readUInt8(attr + 15);
+          const data = u32(buf, attr + 16);
+          const value = raw !== 0xffffffff ? pool[raw] : dataType === 3 ? pool[data] : null;
+          return isPackageId(value) ? value : null;
+        }
+      }
+    }
+    off += size;
+  }
+  return null;
+}
+
+async function readApkPackage(apkUrl) {
+  const head = await rangeGetWithRetry(apkUrl, 0, 0);
+  if (!head.total) throw new Error("APK size unknown");
+
+  const tailStart = Math.max(0, head.total - 65536);
+  const tail = await rangeGetWithRetry(apkUrl, tailStart, head.total - 1);
+  const eocd = findEocd(tail.buffer);
+  if (eocd < 0) throw new Error("ZIP end record not found");
+  const cdSize = u32(tail.buffer, eocd + 12);
+  const cdOffset = u32(tail.buffer, eocd + 16);
+  if (cdOffset === 0xffffffff || cdSize === 0xffffffff) throw new Error("ZIP64 APK");
+  if (cdSize <= 0 || cdOffset + cdSize > head.total) throw new Error("invalid ZIP directory");
+
+  const cd = await rangeGetWithRetry(apkUrl, cdOffset, cdOffset + cdSize - 1);
+  const manifest = findManifestEntry(cd.buffer);
+  if (!manifest) throw new Error("AndroidManifest.xml not found");
+
+  const localHeaderEnd = manifest.localOffset + 30 + 4096;
+  const header = await rangeGetWithRetry(apkUrl, manifest.localOffset, localHeaderEnd);
+  if (u32(header.buffer, 0) !== 0x04034b50) throw new Error("invalid ZIP entry header");
+  const nameLen = u16(header.buffer, 26);
+  const extraLen = u16(header.buffer, 28);
+  const dataStart = manifest.localOffset + 30 + nameLen + extraLen;
+  if (manifest.compSize <= 0) throw new Error("empty AndroidManifest.xml");
+
+  const packed = await rangeGetWithRetry(apkUrl, dataStart, dataStart + manifest.compSize - 1);
+  let xml;
+  if (manifest.method === 0) {
+    xml = packed.buffer;
+  } else if (manifest.method === 8) {
+    xml = zlib.inflateRawSync(packed.buffer);
+  } else {
+    throw new Error(`unsupported compression method ${manifest.method}`);
+  }
+  if (xml.length > MAX_MANIFEST_BYTES) throw new Error("AndroidManifest.xml is unexpectedly large");
+  return readPackageFromManifest(xml);
+}
+
+// Official entries already expose the package through org_repo, which consumers
+// read directly. Only search-found repos need it read out of the APK.
+function hasKnownPackage(entry) {
+  if (isPackageId(entry.package)) return true;
+  const orgRepo = entry.org_repo || "";
+  if (orgRepo.startsWith(`${ORG}/`)) {
+    return isPackageId(orgRepo.slice(ORG.length + 1));
+  }
+  return false;
+}
+
+async function fillMissingPackages(entries, args) {
+  const retryMs = args.packageRetryDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const candidates = entries.filter((entry) => {
+    if (hasKnownPackage(entry)) return false;
+    if (!entry.release || !entry.release.apk_url) return false;
+    const checkedAt = entry.package_checked_at ? new Date(entry.package_checked_at).getTime() : 0;
+    return !checkedAt || now - checkedAt >= retryMs;
+  });
+  if (candidates.length === 0) return;
+
+  let resolved = 0;
+  let failed = 0;
+  let probed = 0;
+  const failures = [];
+  await runPool(candidates, PACKAGE_CONCURRENCY, async (entry) => {
+    try {
+      const pkg = await readApkPackage(entry.release.apk_url);
+      if (pkg) {
+        entry.package = pkg;
+        delete entry.package_checked_at;
+        resolved++;
+      } else {
+        entry.package_checked_at = new Date().toISOString();
+        failures.push(`${entry.full_name}: no package attribute`);
+        failed++;
+      }
+    } catch (error) {
+      entry.package_checked_at = new Date().toISOString();
+      failures.push(`${entry.full_name}: ${error.message}`);
+      failed++;
+    }
+    probed++;
+    if (probed % 100 === 0) console.log(`  ... ${probed}/${candidates.length} APKs probed`);
+  });
+  console.log(`  Package ids from APK manifests: ${resolved} resolved, ${failed} unreadable (${candidates.length} probed)`);
+  if (failures.length > 0) console.log(`  Unreadable: ${failures.slice(0, 5).join("; ")}`);
+}
+
 // Official-entry metadata: SOURCE_URL (real repo), SUMMARY (module name),
 // SCOPE (hooked package ids). All raw fetches, cached after the first fetch.
 async function fetchOrgMeta(repo, prev) {
@@ -446,6 +712,54 @@ async function runPool(items, limit, fn) {
   });
   await Promise.all(workers);
   return results;
+}
+
+const isApkAsset = (asset) => /\.apk$/i.test((asset && asset.name) || "");
+
+// Fetches the newest release that carries an APK, plus the raw result state so
+// the caller can tell a repo with no releases from a transient request failure.
+async function fetchLatestRelease(entry) {
+  const repoRef = entry.org_repo || entry.full_name;
+  const url = new URL(`https://api.github.com/repos/${repoRef}/releases`);
+  url.searchParams.set("per_page", "10");
+  const res = await githubGetWithRetry(url);
+  if (!res) return { status: "retry" };
+  if (!res.ok) {
+    if (res.rateLimited) return { status: "ratelimited" };
+    if (res.status === 404) {
+      return { status: "ok", fetchedAt: new Date().toISOString(), release: null };
+    }
+    return { status: "retry" };
+  }
+  let list;
+  try {
+    list = await res.json();
+  } catch {
+    return { status: "retry" };
+  }
+  if (!Array.isArray(list)) return { status: "retry" };
+
+  const fetchedAt = new Date().toISOString();
+  if (list.length === 0) return { status: "ok", fetchedAt, release: null };
+
+  // Pick the NEWEST release that actually carries an .apk asset. The latest
+  // release is often a docs-only/zip tag, so a shallow scan would report
+  // "no APK" even though an earlier release ships the module.
+  const release = list.find((x) => (x.assets || []).some(isApkAsset)) || list[0];
+  const apk = (release.assets || []).find(isApkAsset);
+  return {
+    status: "ok",
+    fetchedAt,
+    release: {
+      tag: release.tag_name || "",
+      name: release.name || "",
+      published_at: release.published_at || "",
+      html_url: release.html_url || "",
+      // Only ever point at a real .apk asset (never a zip/source fallback).
+      apk_url: apk ? apk.browser_download_url : "",
+      prerelease: !!release.prerelease,
+    },
+  };
 }
 
 async function main() {
@@ -731,65 +1045,69 @@ async function main() {
   let releaseStopped = false;
   let releasedCount = 0;
   const releaseTtlMs = args.releaseTtlDays * 24 * 60 * 60 * 1000;
+  const releaseRetry = [];
   const all = await runPool(sorted, CONCURRENCY, async (entry) => {
     if (releaseStopped) return entry;
-    // Cache both the "has release" and "no release" states (release_fetched_at).
-    // Only honor the cache once a release has been DEEP-checked (release_checked_deep):
-    // older entries were shallow-scanned (latest release only) and may hide an APK
-    // in an earlier release, so they get re-fetched once with the new scan.
+    // Only a release that actually ships an APK is cached. An entry with no
+    // release, or with releases that carry no APK, stays un-deep and is checked
+    // again next run, so a module published later is picked up without waiting
+    // out the TTL. A failed request is retried once below.
     if (
       entry.release_checked_deep &&
+      entry.release &&
+      entry.release.apk_url &&
       entry.release_fetched_at &&
       Date.now() - new Date(entry.release_fetched_at).getTime() < releaseTtlMs
     ) {
-      if (entry.release && entry.release.tag) releasedCount++;
+      releasedCount++;
       return entry;
     }
-    const repoRef = entry.org_repo || entry.full_name;
-    const url = new URL(`https://api.github.com/repos/${repoRef}/releases`);
-    url.searchParams.set("per_page", "10");
-    const res = await githubGet(url);
-    if (!res) return entry;
-    if (!res.ok) {
-      if (res.rateLimited) {
-        releaseStopped = true;
-        quietWarnings = true;
-      }
+    const result = await fetchLatestRelease(entry);
+    if (result.status === "ratelimited") {
+      releaseStopped = true;
+      quietWarnings = true;
       return entry;
     }
-    let list = [];
-    try {
-      list = await res.json();
-    } catch {
+    if (result.status !== "ok") {
+      releaseRetry.push(entry);
       return entry;
     }
-    const fetchedAt = new Date().toISOString();
-    if (!Array.isArray(list) || list.length === 0) {
-      return { ...entry, release: null, release_fetched_at: fetchedAt };
-    }
-    // Pick the NEWEST release that actually carries an .apk asset. The latest
-    // release is often a docs-only/zip tag, so a shallow scan would report
-    // "no APK" even though an earlier release ships the module.
-    const isApkAsset = (a) => /\.apk$/i.test((a && a.name) || "");
-    const r = list.find((x) => (x.assets || []).some(isApkAsset)) || list[0];
-    const apk = (r.assets || []).find(isApkAsset);
-    const release = {
-      tag: r.tag_name || "",
-      name: r.name || "",
-      published_at: r.published_at || "",
-      html_url: r.html_url || "",
-      // Only ever point at a real .apk asset (never a zip/source fallback).
-      apk_url: apk ? apk.browser_download_url : "",
-      prerelease: !!r.prerelease,
-    };
-    releasedCount++;
+    if (result.release && result.release.apk_url) releasedCount++;
     return {
       ...entry,
-      release,
-      release_fetched_at: fetchedAt,
-      release_checked_deep: true,
+      release: result.release,
+      release_fetched_at: result.fetchedAt,
+      release_checked_deep: !!(result.release && result.release.apk_url),
     };
   });
+
+  // Second look at entries whose request failed (network, 5xx) rather than
+  // leaving them without a release until tomorrow's run.
+  if (!releaseStopped && releaseRetry.length > 0) {
+    console.log(`  Retrying ${releaseRetry.length} release lookups that failed...`);
+    await sleep(3000);
+    await runPool(releaseRetry, 8, async (entry) => {
+      if (releaseStopped) return;
+      const result = await fetchLatestRelease(entry);
+      if (result.status === "ratelimited") {
+        releaseStopped = true;
+        quietWarnings = true;
+        return;
+      }
+      if (result.status !== "ok") return;
+      if (result.release && result.release.apk_url) releasedCount++;
+      entry.release = result.release;
+      entry.release_fetched_at = result.fetchedAt;
+      entry.release_checked_deep = !!(result.release && result.release.apk_url);
+    });
+  }
+
+  // ---- Package ids for search-found repos ----
+  // Official entries already carry the package in their repo name. Everything
+  // else gets it from the release APK's manifest.
+  if (args.packageScan) {
+    await fillMissingPackages(all, args);
+  }
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2) + "\n");
@@ -816,7 +1134,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  readApkPackage,
+  readPackageFromManifest,
+  fetchLatestRelease,
+};
