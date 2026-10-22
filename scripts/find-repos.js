@@ -618,15 +618,22 @@ async function readApkPackage(apkUrl) {
   return readPackageFromManifest(xml);
 }
 
+// The package id an entry resolves to: explicit `package`, or the official
+// org repo name for entries that came from the LSPosed repository.
+function packageIdOf(entry) {
+  if (isPackageId(entry.package)) return entry.package;
+  const orgRepo = entry.org_repo || "";
+  if (orgRepo.startsWith(`${ORG}/`)) {
+    const pkg = orgRepo.slice(ORG.length + 1);
+    if (isPackageId(pkg)) return pkg;
+  }
+  return null;
+}
+
 // Official entries already expose the package through org_repo, which consumers
 // read directly. Only search-found repos need it read out of the APK.
 function hasKnownPackage(entry) {
-  if (isPackageId(entry.package)) return true;
-  const orgRepo = entry.org_repo || "";
-  if (orgRepo.startsWith(`${ORG}/`)) {
-    return isPackageId(orgRepo.slice(ORG.length + 1));
-  }
-  return false;
+  return packageIdOf(entry) !== null;
 }
 
 async function fillMissingPackages(entries, args) {
@@ -666,6 +673,115 @@ async function fillMissingPackages(entries, args) {
   });
   console.log(`  Package ids from APK manifests: ${resolved} resolved, ${failed} unreadable (${candidates.length} probed)`);
   if (failures.length > 0) console.log(`  Unreadable: ${failures.slice(0, 5).join("; ")}`);
+}
+
+// ---- Merge entries that share a package id --------------------------------
+// The official org and GitHub search can both find the same module. The app
+// already collapses them by package; doing it here keeps the site to one card
+// per module and keeps the data file from carrying both identities.
+
+function entryTime(value) {
+  const t = Date.parse(value || "");
+  return Number.isFinite(t) ? t : 0;
+}
+
+// Real source repos are preferred over package-only official entries, and a
+// merged official+search entry is already the best of both.
+function entryScore(entry) {
+  const source = entry.source || "";
+  let score = 0;
+  if (source.includes("search")) score += 4;
+  if (source.startsWith("lsposed-repo")) score += 2;
+  if (!entry.archived) score += 1;
+  return score;
+}
+
+function mergePackageGroup(pkg, group) {
+  const primary = [...group].sort((a, b) => {
+    const byScore = entryScore(b) - entryScore(a);
+    if (byScore !== 0) return byScore;
+    const byRelease = entryTime(b.release && b.release.published_at) -
+      entryTime(a.release && a.release.published_at);
+    if (byRelease !== 0) return byRelease;
+    return (b.stargazers_count || 0) - (a.stargazers_count || 0);
+  })[0];
+  const official = group.find((entry) => (entry.source || "").startsWith("lsposed-repo"));
+  const merged = { ...primary, package: pkg };
+
+  if (official && official !== primary) {
+    if (!merged.summary && official.summary) merged.summary = official.summary;
+    if (!merged.description && official.description) merged.description = official.description;
+    if (!merged.homepage && official.homepage) merged.homepage = official.homepage;
+    if (!merged.source_url && official.source_url) merged.source_url = official.source_url;
+    if (!merged.org_repo && official.org_repo) merged.org_repo = official.org_repo;
+    if ((!merged.scope || merged.scope.length === 0) && official.scope && official.scope.length) {
+      merged.scope = official.scope;
+    }
+    const metadata = { ...(official.metadata || {}), ...(merged.metadata || {}) };
+    if (Object.keys(metadata).length > 0) merged.metadata = metadata;
+  }
+  if (official && (primary.source || "").includes("search")) {
+    merged.source = "lsposed-repo+search";
+  }
+  merged.verified = group.some((entry) => entry.verified);
+
+  // Keep the newest release that actually has an APK, matching what the app
+  // would pick from the duplicate entries.
+  const newest = group
+    .filter((entry) => entry.release && entry.release.apk_url)
+    .sort((a, b) => entryTime(b.release.published_at) - entryTime(a.release.published_at))[0];
+  if (
+    newest &&
+    (!merged.release ||
+      !merged.release.apk_url ||
+      entryTime(newest.release.published_at) > entryTime(merged.release.published_at))
+  ) {
+    merged.release = newest.release;
+    merged.release_fetched_at = newest.release_fetched_at;
+    merged.release_checked_deep = newest.release_checked_deep;
+  }
+
+  const added = group.map((entry) => entryTime(entry.added_at)).filter((t) => t > 0);
+  if (added.length > 0) merged.added_at = new Date(Math.min(...added)).toISOString();
+  return merged;
+}
+
+function mergeDuplicatePackages(entries) {
+  const byPackage = new Map();
+  const result = [];
+  for (const entry of entries) {
+    const pkg = packageIdOf(entry);
+    if (!pkg) {
+      result.push(entry);
+      continue;
+    }
+    const group = byPackage.get(pkg);
+    if (group) group.push(entry);
+    else byPackage.set(pkg, [entry]);
+  }
+
+  let mergedAway = 0;
+  for (const [pkg, group] of byPackage) {
+    if (group.length === 1) {
+      result.push(group[0]);
+      continue;
+    }
+    mergedAway += group.length - 1;
+    result.push(mergePackageGroup(pkg, group));
+  }
+  if (mergedAway > 0) {
+    console.log(
+      `  Merged ${mergedAway} duplicate entries into ${byPackage.size} package cards`
+    );
+  }
+  // Keep the file in the same star-descending order the collector writes elsewhere.
+  result.sort((a, b) => {
+    const sa = typeof a.stargazers_count === "number" ? a.stargazers_count : -1;
+    const sb = typeof b.stargazers_count === "number" ? b.stargazers_count : -1;
+    if (sb !== sa) return sb - sa;
+    return (a.full_name || "").localeCompare(b.full_name || "");
+  });
+  return result;
 }
 
 // Official-entry metadata: SOURCE_URL (real repo), SUMMARY (module name),
@@ -1109,8 +1225,11 @@ async function main() {
     await fillMissingPackages(all, args);
   }
 
+  // One card per package: the site and the app both key modules by package id.
+  const mergedModules = mergeDuplicatePackages(all);
+
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(all, null, 2) + "\n");
+  fs.writeFileSync(DATA_FILE, JSON.stringify(mergedModules, null, 2) + "\n");
   fs.writeFileSync(IGNORED_FILE, JSON.stringify(ignored, null, 2) + "\n");
 
   const newCount = [...final.keys()].filter((k) => !existingByKey.has(k)).length;
@@ -1119,8 +1238,11 @@ async function main() {
   console.log(`Verified from search: ${verified} (${known} kept from cache, ${merged} merged with official entries)`);
   console.log(`Rejected (not modules): ${rejected}`);
   console.log(`Ignored cache: ${Object.keys(ignored).length} repos (re-checked after ${args.ignoreTtlDays}d)`);
-  console.log(`Release info: ${releasedCount} of ${all.length} modules`);
-  console.log(`Total modules: ${all.length} (had ${existingList.length}, +${newCount} new)`);
+  const releasedCards = mergedModules.filter(
+    (entry) => entry.release && entry.release.apk_url
+  ).length;
+  console.log(`Release info: ${releasedCards} of ${mergedModules.length} modules`);
+  console.log(`Total modules: ${mergedModules.length} (had ${existingList.length}, +${newCount} new)`);
   console.log(`Wrote ${DATA_FILE} and ${IGNORED_FILE}`);
   if (rateLimited) {
     console.warn(
@@ -1145,4 +1267,6 @@ module.exports = {
   readApkPackage,
   readPackageFromManifest,
   fetchLatestRelease,
+  mergeDuplicatePackages,
+  packageIdOf,
 };

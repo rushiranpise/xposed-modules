@@ -44,6 +44,8 @@ Marker paths are probed via `raw.githubusercontent.com` (free — does not count
 
 Search-found repos do not have a package id in their name, unlike the official org. The collector reads the real id from the release APK's binary `AndroidManifest.xml` using HTTP range requests: it fetches the ZIP central directory and that one manifest entry, so only a few KB are read instead of the whole APK. The result is stored as `package` and reused forever; APKs whose manifest cannot be read are retried after `--package-retry-days` (7 by default).
 
+Entries that resolve to the same package id are merged into one card. The merge keeps the real GitHub repository (owner, stars, avatar), fills in the official summary, scope and repository data, and uses the newest release that ships an APK, so a module found by both sources is not listed twice.
+
 Candidates that fail verification go into `data/ignored.json` so they are not re-checked on every run (the file is generated, not committed).
 
 ## Current stats
