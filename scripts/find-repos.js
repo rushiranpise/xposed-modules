@@ -60,7 +60,7 @@ const DEFAULT_QUERIES = [
 ];
 
 const DEFAULT_MAX_PAGES = 10; // pages per query; 100 repos per page, API caps at 1000/query
-const DEFAULT_DELAY_MS = 2500; // stays under GitHub's 30 searches per minute
+const DEFAULT_DELAY_MS = 3000; // stays under GitHub's search rate limits
 const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
 const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this long
 const DEFAULT_PACKAGE_RETRY_DAYS = 7; // re-probe APK manifests that could not be read
@@ -973,6 +973,15 @@ async function main() {
         language: repo.language || null,
         owner: repo.owner || null,
         added_at: prev ? prev.added_at : undefined, // baseline entries are not "new"
+        // The crawl rebuilds this object every run. Carry the enrichment over so
+        // cached releases and API metadata are not thrown away.
+        release: prev ? prev.release : undefined,
+        release_fetched_at: prev ? prev.release_fetched_at : undefined,
+        release_checked_deep: prev ? prev.release_checked_deep : undefined,
+        package: prev ? prev.package : undefined,
+        package_checked_at: prev ? prev.package_checked_at : undefined,
+        metadata: prev ? prev.metadata : undefined,
+        metadata_checked_at: prev ? prev.metadata_checked_at : undefined,
         verified: true,
         source: "lsposed-repo",
       };
@@ -993,9 +1002,20 @@ async function main() {
     console.log(`  ${orgCount} official module entries`);
   }
 
-  // ---- Source 2: GitHub search, verified against module markers ----
-  console.log(`Source 2: searching GitHub (${args.queries.length} query/queries)...`);
   const candidates = [];
+
+  // ---- Source 2: GitHub code search for the legacy Xposed entry file ----
+  // Run this before the repository search so both share the search quota fairly.
+  if (args.codeSearch) {
+    console.log("Source 2: searching GitHub code for xposed_init...");
+    const codeRepos = await searchXposedInitRepos(args.codePages, args.delay);
+    candidates.push(...codeRepos);
+    console.log(`  ${codeRepos.length} repos from code search`);
+    if (codeRepos.length > 0 && args.delay > 0) await sleep(5000);
+  }
+
+  // ---- Source 3: GitHub repository search, verified against module markers ----
+  console.log(`Source 3: searching GitHub (${args.queries.length} query/queries)...`);
   let rateLimited = false;
   for (const query of args.queries) {
     const { found, stopped } = await searchRepositories(query, args.maxPages, args.delay);
@@ -1004,14 +1024,6 @@ async function main() {
       rateLimited = true;
       break;
     }
-  }
-
-  // ---- Source 3: GitHub code search for the legacy Xposed entry file ----
-  if (args.codeSearch) {
-    console.log("Source 3: searching GitHub code for xposed_init...");
-    const codeRepos = await searchXposedInitRepos(args.codePages, args.delay);
-    candidates.push(...codeRepos);
-    console.log(`  ${codeRepos.length} repos from code search`);
   }
 
   // Keep entries from previous runs that this run's search didn't return (e.g.
