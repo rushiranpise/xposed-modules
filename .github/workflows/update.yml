@@ -31,7 +31,9 @@ jobs:
 
       - name: Find Xposed module repos
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # Keep the collector's API usage off the installation token so the
+          # Pages actions still have quota at the end of the job.
+          GITHUB_TOKEN: ${{ secrets.CODE_SEARCH_TOKEN }}
           CODE_SEARCH_TOKEN: ${{ secrets.CODE_SEARCH_TOKEN }}
         run: node scripts/find-repos.js
 
