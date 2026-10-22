@@ -40,7 +40,9 @@ GitHub search finds modules that are **not** in the official repository. Every c
 | `module.prop` | LSPosed module properties |
 | `module.json` | LSPosed module repo format |
 
-Marker paths are probed via `raw.githubusercontent.com` (free — does not count against API rate limits). When `GITHUB_TOKEN` is set (the workflow passes it automatically), candidates that miss every probe get a full git-tree scan, which catches modules with unusual directory layouts.
+Marker paths are probed via `raw.githubusercontent.com` (free - does not count against API rate limits). When `GITHUB_TOKEN` is set (the workflow passes it automatically), candidates that miss every probe get a full git-tree scan, which catches modules with unusual directory layouts.
+
+The search also scans GitHub code for `filename:xposed_init`. That finds modules whose repository descriptions never mention Xposed. The pass needs `GITHUB_TOKEN`, reads up to 1,000 results (10 pages), skips forks, and can be turned off with `--no-code-search`.
 
 Search-found repos do not have a package id in their name, unlike the official org. The collector reads the real id from the release APK's binary `AndroidManifest.xml` using HTTP range requests: it fetches the ZIP central directory and that one manifest entry, so only a few KB are read instead of the whole APK. The result is stored as `package` and reused forever; APKs whose manifest cannot be read are retried after `--package-retry-days` (7 by default).
 
@@ -88,6 +90,7 @@ node scripts/build-site.js
 node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"]
                             [--no-org] [--ignore-ttl-days N] [--release-ttl-days N]
                             [--api-scan N] [--package-retry-days N] [--no-package-scan]
+                            [--code-pages N] [--no-code-search]
 ```
 
 - `--no-org` — skip the official org crawl
@@ -96,6 +99,8 @@ node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"]
 - `--api-scan N` — re-scan module API metadata for `N` repos per run
 - `--package-retry-days` — days before an unreadable APK manifest is probed again (default: 7)
 - `--no-package-scan` — skip the APK manifest pass
+- `--code-pages N` — pages of `xposed_init` code search to read (default: 10, up to 1,000 results)
+- `--no-code-search` — skip the code search pass
 - `--queries` — override the default GitHub search queries
 
 Releases that ship no APK, and entries with no release at all, are checked again on every run instead of being cached for the TTL. A failed release request is retried once in the same run, so a module published since the last run is picked up the next day.

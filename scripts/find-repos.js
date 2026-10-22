@@ -5,7 +5,7 @@
  * Build a curated list of Xposed/LSPosed module repositories.
  *
  * Usage:
- *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N] [--release-ttl-days N] [--api-scan N] [--package-retry-days N] [--no-package-scan]
+ *   node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"] [--no-org] [--ignore-ttl-days N] [--release-ttl-days N] [--api-scan N] [--package-retry-days N] [--no-package-scan] [--code-pages N] [--no-code-search]
  *
  * The list is built from two sources:
  *
@@ -94,6 +94,8 @@ function parseArgs(argv) {
     releaseTtlDays: DEFAULT_RELEASE_TTL_DAYS,
     packageRetryDays: DEFAULT_PACKAGE_RETRY_DAYS,
     packageScan: true,
+    codeSearch: true,
+    codePages: 10,
     apiScan: 0,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -121,6 +123,12 @@ function parseArgs(argv) {
         break;
       case "--no-package-scan":
         args.packageScan = false;
+        break;
+      case "--code-pages":
+        args.codePages = parseInt(argv[++i], 10) || 10;
+        break;
+      case "--no-code-search":
+        args.codeSearch = false;
         break;
       case "--api-scan": {
         // Force a git-tree scan for module.prop/module.json even without a token
@@ -230,6 +238,54 @@ async function githubGetWithRetry(url, attempts = 3) {
     if (attempt < attempts - 1) await sleep(1000 * (attempt + 1));
   }
   return last;
+}
+
+// GitHub's code search finds modules whose descriptions never mention Xposed.
+// It needs a token, has a smaller rate limit, and stops at 1,000 results.
+async function searchXposedInitRepos(pages, delay) {
+  if (!process.env.GITHUB_TOKEN) {
+    console.warn("  Code search skipped: GITHUB_TOKEN is not set");
+    return [];
+  }
+
+  const found = new Map();
+  for (let page = 1; page <= pages; page++) {
+    const url = new URL("https://api.github.com/search/code");
+    url.searchParams.set("q", "filename:xposed_init");
+    url.searchParams.set("per_page", "100");
+    url.searchParams.set("page", String(page));
+
+    const res = await githubGet(url);
+    if (!res) break;
+    if (!res.ok) {
+      console.warn(`  Code search stopped (HTTP ${res.status ?? "error"}).`);
+      break;
+    }
+
+    let body;
+    try {
+      body = await res.json();
+    } catch {
+      break;
+    }
+    const items = Array.isArray(body.items) ? body.items : [];
+    for (const item of items) {
+      const repo = item.repository;
+      if (!repo || !repo.full_name || repo.fork) continue;
+      const key = repo.full_name.toLowerCase();
+      if (!found.has(key)) {
+        found.set(key, {
+          ...repo,
+          _verified: true,
+          _verifiedMarker: item.path || "xposed_init",
+        });
+      }
+    }
+    console.log(`  [code] page ${page}: ${items.length} matches`);
+    if (items.length < 100) break;
+    if (delay > 0) await sleep(delay);
+  }
+  return [...found.values()];
 }
 
 // Wraps fetch() with auth headers, a timeout and rate-limit awareness.
@@ -950,6 +1006,14 @@ async function main() {
     }
   }
 
+  // ---- Source 3: GitHub code search for the legacy Xposed entry file ----
+  if (args.codeSearch) {
+    console.log("Source 3: searching GitHub code for xposed_init...");
+    const codeRepos = await searchXposedInitRepos(args.codePages, args.delay);
+    candidates.push(...codeRepos);
+    console.log(`  ${codeRepos.length} repos from code search`);
+  }
+
   // Keep entries from previous runs that this run's search didn't return (e.g.
   // after a deeper crawl), and re-verify any pre-verification leftovers.
   const searchNames = new Set(candidates.map((c) => c.full_name.toLowerCase()));
@@ -992,7 +1056,7 @@ async function main() {
       return {
         repo,
         verdict: "known",
-        marker: prevEntry ? prevEntry.marker : null,
+        marker: prevEntry?.marker || repo._verifiedMarker || null,
         metadata: prevEntry ? prevEntry.metadata : null,
       };
     }
@@ -1271,4 +1335,5 @@ module.exports = {
   fetchLatestRelease,
   mergeDuplicatePackages,
   packageIdOf,
+  searchXposedInitRepos,
 };
