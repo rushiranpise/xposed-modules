@@ -17746,7 +17746,7 @@
     "updated_at": "2026-10-21T12:56:54Z",
     "pushed_at": "2026-10-20T10:45:34Z",
     "verified": true,
-    "source": "search",
+    "source": "lsposed-repo+search",
     "marker": "app/src/main/resources/META-INF/xposed/module.prop",
     "metadata": {
       "minApi": 102,
@@ -17754,16 +17754,18 @@
     },
     "added_at": "2026-10-04T09:11:43.643Z",
     "release": {
-      "tag": "v1.6.12",
-      "name": "HyperDuo 1.6.12",
-      "published_at": "2026-10-13T14:46:24Z",
-      "html_url": "https://github.com/yixing233/HyperDuo/releases/tag/v1.6.12",
-      "apk_url": "https://github.com/yixing233/HyperDuo/releases/download/v1.6.12/HyperDuo-1.6.12.apk",
+      "tag": "10701-1.7.1",
+      "name": "1.7.1",
+      "published_at": "2026-10-20T10:43:36Z",
+      "html_url": "https://github.com/Xposed-Modules-Repo/io.github.yixing233.hyperduo/releases/tag/10701-1.7.1",
+      "apk_url": "https://github.com/Xposed-Modules-Repo/io.github.yixing233.hyperduo/releases/download/10701-1.7.1/HyperDuo-1.7.1.apk",
       "prerelease": false
     },
-    "release_fetched_at": "2026-10-19T08:22:57.534Z",
+    "release_fetched_at": "2026-10-22T02:11:21.238Z",
     "release_checked_deep": true,
-    "package_checked_at": "2026-10-22T02:11:40.895Z"
+    "package": "io.github.yixing233.hyperduo",
+    "summary": "把状态栏的 Wi-Fi、移动信号与电池合并成一个仿 iPhone「Duo」风格的三合一体图标：外圈是电池环，环内是 Wi-Fi 弧线，底部是移动信号点，圆心是电量数字。每项都能单独开关，改完立即生效、无需重启。",
+    "org_repo": "Xposed-Modules-Repo/io.github.yixing233.hyperduo"
   },
   {
     "full_name": "1zzzzzlll/douyim",
@@ -57631,53 +57633,6 @@
     "release_checked_deep": true
   },
   {
-    "full_name": "io.github.yixing233.hyperduo",
-    "html_url": "https://github.com/Xposed-Modules-Repo/io.github.yixing233.hyperduo",
-    "source_url": "",
-    "org_repo": "Xposed-Modules-Repo/io.github.yixing233.hyperduo",
-    "summary": "把状态栏的 Wi-Fi、移动信号与电池合并成一个仿 iPhone「Duo」风格的三合一体图标：外圈是电池环，环内是 Wi-Fi 弧线，底部是移动信号点，圆心是电量数字。每项都能单独开关，改完立即生效、无需重启。",
-    "description": "把状态栏的 Wi-Fi、移动信号与电池合并成一个仿 iPhone「Duo」风格的三合一体图标：外圈是电池环，环内是 Wi-Fi 弧线，底部是移动信号点，圆心是电量数字。每项都能单独开关，改完立即生效、无需重启。",
-    "scope": [],
-    "archived": false,
-    "pushed_at": "2026-10-20T19:30:14Z",
-    "updated_at": "2026-10-19T15:58:57Z",
-    "stargazers_count": 4,
-    "language": null,
-    "owner": {
-      "login": "Xposed-Modules-Repo",
-      "id": 78217009,
-      "node_id": "MDEyOk9yZ2FuaXphdGlvbjc4MjE3MDA5",
-      "avatar_url": "https://avatars.githubusercontent.com/u/78217009?v=4",
-      "gravatar_id": "",
-      "url": "https://api.github.com/users/Xposed-Modules-Repo",
-      "html_url": "https://github.com/Xposed-Modules-Repo",
-      "followers_url": "https://api.github.com/users/Xposed-Modules-Repo/followers",
-      "following_url": "https://api.github.com/users/Xposed-Modules-Repo/following{/other_user}",
-      "gists_url": "https://api.github.com/users/Xposed-Modules-Repo/gists{/gist_id}",
-      "starred_url": "https://api.github.com/users/Xposed-Modules-Repo/starred{/owner}{/repo}",
-      "subscriptions_url": "https://api.github.com/users/Xposed-Modules-Repo/subscriptions",
-      "organizations_url": "https://api.github.com/users/Xposed-Modules-Repo/orgs",
-      "repos_url": "https://api.github.com/users/Xposed-Modules-Repo/repos",
-      "events_url": "https://api.github.com/users/Xposed-Modules-Repo/events{/privacy}",
-      "received_events_url": "https://api.github.com/users/Xposed-Modules-Repo/received_events",
-      "type": "Organization",
-      "user_view_type": "public",
-      "site_admin": false
-    },
-    "verified": true,
-    "source": "lsposed-repo",
-    "release": {
-      "tag": "10701-1.7.1",
-      "name": "1.7.1",
-      "published_at": "2026-10-20T10:43:36Z",
-      "html_url": "https://github.com/Xposed-Modules-Repo/io.github.yixing233.hyperduo/releases/tag/10701-1.7.1",
-      "apk_url": "https://github.com/Xposed-Modules-Repo/io.github.yixing233.hyperduo/releases/download/10701-1.7.1/HyperDuo-1.7.1.apk",
-      "prerelease": false
-    },
-    "release_fetched_at": "2026-10-22T02:11:21.238Z",
-    "release_checked_deep": true
-  },
-  {
     "full_name": "io.github.yylsping.xadfree",
     "html_url": "https://github.com/yylsping/x-adfree",
     "source_url": "https://github.com/yylsping/x-adfree",
@@ -59339,16 +59294,16 @@
     },
     "added_at": "2026-10-17T07:23:53.807Z",
     "release": {
-      "tag": "3.1.18",
-      "name": "3.1.18",
-      "published_at": "2026-10-16T19:46:52Z",
-      "html_url": "https://github.com/a092devs/NexAlloyNext/releases/tag/3.1.18",
-      "apk_url": "https://github.com/a092devs/NexAlloyNext/releases/download/3.1.18/NexAlloyNext-3.1.18.apk",
+      "tag": "3.3.2",
+      "name": "3.3.2",
+      "published_at": "2026-10-20T18:23:16Z",
+      "html_url": "https://github.com/a092devs/NexAlloyNext/releases/tag/3.3.2",
+      "apk_url": "https://github.com/a092devs/NexAlloyNext/releases/download/3.3.2/NexAlloyNext-3.3.2.apk",
       "prerelease": false
     },
-    "release_fetched_at": "2026-10-17T07:26:17.214Z",
+    "release_fetched_at": "2026-10-22T02:35:31.038Z",
     "release_checked_deep": true,
-    "package_checked_at": "2026-10-22T02:11:52.113Z"
+    "package": "io.github.nexalloy.next"
   },
   {
     "full_name": "aboutZZ/WeChatFingerprintPay",
