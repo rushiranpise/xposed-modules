@@ -32,6 +32,7 @@ jobs:
       - name: Find Xposed module repos
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CODE_SEARCH_TOKEN: ${{ secrets.CODE_SEARCH_TOKEN }}
         run: node scripts/find-repos.js
 
       - name: Build site
@@ -47,8 +48,13 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update xposed module list and site"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+          git commit -m "Update xposed module list and site"
+          git fetch origin "${GITHUB_REF_NAME}"
+          git rebase "origin/${GITHUB_REF_NAME}" || {
+            git rebase --abort
+            git pull --no-rebase --no-edit -X ours origin "${GITHUB_REF_NAME}"
+          }
+          git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
       - name: Configure Pages

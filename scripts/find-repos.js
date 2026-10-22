@@ -155,14 +155,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // from in-flight parallel requests.
 let quietWarnings = false;
 
-function requestHeaders() {
+function requestHeaders(token = process.env.GITHUB_TOKEN) {
   const headers = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "xposed-modules-directory",
   };
-  if (process.env.GITHUB_TOKEN) {
-    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
   return headers;
 }
@@ -243,8 +243,11 @@ async function githubGetWithRetry(url, attempts = 3) {
 // GitHub's code search finds modules whose descriptions never mention Xposed.
 // It needs a token, has a smaller rate limit, and stops at 1,000 results.
 async function searchXposedInitRepos(pages, delay) {
-  if (!process.env.GITHUB_TOKEN) {
-    console.warn("  Code search skipped: GITHUB_TOKEN is not set");
+  // Code search is stricter than repository search for installation tokens.
+  // A user token in CODE_SEARCH_TOKEN gets its own quota.
+  const token = process.env.CODE_SEARCH_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token) {
+    console.warn("  Code search skipped: no GitHub token is set");
     return [];
   }
 
@@ -255,7 +258,7 @@ async function searchXposedInitRepos(pages, delay) {
     url.searchParams.set("per_page", "100");
     url.searchParams.set("page", String(page));
 
-    const res = await githubGet(url);
+    const res = await githubGet(url, token);
     if (!res) break;
     if (!res.ok) {
       console.warn(`  Code search stopped (HTTP ${res.status ?? "error"}).`);
@@ -289,9 +292,9 @@ async function searchXposedInitRepos(pages, delay) {
 }
 
 // Wraps fetch() with auth headers, a timeout and rate-limit awareness.
-async function githubGet(url) {
+async function githubGet(url, token = process.env.GITHUB_TOKEN) {
   try {
-    const res = await fetch(url, { headers: requestHeaders(), signal: AbortSignal.timeout(20000) });
+    const res = await fetch(url, { headers: requestHeaders(token), signal: AbortSignal.timeout(20000) });
     if (!res.ok && (res.status === 403 || res.status === 429)) {
       const remaining = res.headers.get("x-ratelimit-remaining");
       if (!quietWarnings) {
