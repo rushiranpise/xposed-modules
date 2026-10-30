@@ -3,7 +3,7 @@ name: Update Xposed Modules List
 # Runs every day at 03:00 UTC, and can be triggered manually from the Actions tab.
 on:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
   push:
 
