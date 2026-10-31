@@ -26835,55 +26835,6 @@
     "release_checked_deep": false
   },
   {
-    "full_name": "rushiranpise/lsposed-modules-manager",
-    "html_url": "https://github.com/rushiranpise/lsposed-modules-manager",
-    "description": "An Android app for finding, installing and updating Xposed/Lsposed modules.",
-    "homepage": "https://buymeacoffee.com/rushiranpise",
-    "stargazers_count": 20,
-    "forks_count": 1,
-    "language": "Kotlin",
-    "topics": [
-      "lsposed",
-      "lsposed-module",
-      "shizuku",
-      "shizuku-api",
-      "xposed",
-      "xposed-app",
-      "xposed-framework",
-      "xposed-module",
-      "xposedbridge",
-      "xposedinstaller",
-      "xposedmodule"
-    ],
-    "archived": false,
-    "owner": {
-      "login": "rushiranpise",
-      "avatar_url": "https://avatars.githubusercontent.com/u/37355997?v=4"
-    },
-    "created_at": "2026-10-22T03:27:30Z",
-    "updated_at": "2026-10-31T01:37:31Z",
-    "pushed_at": "2026-10-30T21:30:12Z",
-    "verified": true,
-    "source": "search",
-    "marker": "app/src/main/resources/META-INF/xposed/module.prop",
-    "metadata": {
-      "minApi": 102,
-      "targetApi": 102
-    },
-    "added_at": "2026-10-30T17:52:03.275Z",
-    "release": {
-      "tag": "v2.0.0",
-      "name": "Modules Manager v2.0.0",
-      "published_at": "2026-10-30T17:25:35Z",
-      "html_url": "https://github.com/rushiranpise/lsposed-modules-manager/releases/tag/v2.0.0",
-      "apk_url": "https://github.com/rushiranpise/lsposed-modules-manager/releases/download/v2.0.0/ModulesManager-v2.0.0-debug.apk",
-      "prerelease": false
-    },
-    "release_fetched_at": "2026-10-30T18:01:19.443Z",
-    "release_checked_deep": true,
-    "package": "com.rushi.modulesmanager"
-  },
-  {
     "full_name": "TheWhiteDog9487/FreeUnlock",
     "html_url": "https://github.com/TheWhiteDog9487/FreeUnlock",
     "description": "禁用Android每72小时必须使用密码解锁屏幕的限制",
