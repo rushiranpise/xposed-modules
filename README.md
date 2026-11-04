@@ -39,12 +39,17 @@ GitHub search finds modules that are **not** in the official repository. Every c
 | `xposed_init` | classic Xposed entry point |
 | `module.prop` | LSPosed module properties |
 | `module.json` | LSPosed module repo format |
+| `META-INF/xposed/java_init.list` | libxposed Java entry point |
+| `META-INF/xposed/native_init.list` | libxposed native entry point |
+| `META-INF/xposed/module.prop` | libxposed module properties |
 
-Marker paths are probed via `raw.githubusercontent.com` (free - does not count against API rate limits). When `GITHUB_TOKEN` is set (the workflow passes it automatically), candidates that miss every probe get a full git-tree scan, which catches modules with unusual directory layouts.
+Marker paths are probed via `raw.githubusercontent.com` (free - does not count against API rate limits). When `GITHUB_TOKEN` is set (the workflow passes it automatically), candidates that miss every probe get a full git-tree scan, which catches modules with unusual directory layouts. A watched repo that still has no source marker is checked against its release APK's ZIP entries, so APK-only modules can be verified without source.
 
-The search also scans GitHub code for `filename:xposed_init`. That finds modules whose repository descriptions never mention Xposed. The pass needs `GITHUB_TOKEN`, reads up to 1,000 results (10 pages), skips forks, and can be turned off with `--no-code-search`.
+The search also scans GitHub code for `filename:xposed_init`, `filename:java_init.list` and `filename:native_init.list`. That finds modules whose repository descriptions never mention Xposed, including modern libxposed modules. The pass needs `GITHUB_TOKEN`, reads up to 1,000 results per query, skips forks, and can be turned off with `--no-code-search`.
 
-Search-found repos do not have a package id in their name, unlike the official org. The collector reads the real id from the release APK's binary `AndroidManifest.xml` using HTTP range requests: it fetches the ZIP central directory and that one manifest entry, so only a few KB are read instead of the whole APK. The result is stored as `package` and reused forever; APKs whose manifest cannot be read are retried after `--package-retry-days` (7 by default).
+[`data/watchlist.json`](data/watchlist.json) is a small curated list for repos that search misses, or that ship only APKs and have no source for the marker probes. They go through the same verification as every other candidate.
+
+Search-found repos do not have a package id in their name, unlike the official org. The collector reads the real id from the release APK's binary `AndroidManifest.xml` using HTTP range requests: it fetches the ZIP central directory and that one manifest entry, so only a few KB are read instead of the whole APK. Official entries are probed too, because a repo name can differ in case from the installed package; `org_repo` remains the fallback when no APK is available. The result is stored as `package` and reused forever; APKs whose manifest cannot be read are retried after `--package-retry-days` (7 by default), and a changed or missing release asset is retried immediately.
 
 Entries that resolve to the same package id are merged into one card. The merge keeps the real GitHub repository (owner, stars, avatar), fills in the official summary, scope and repository data, and uses the newest release that ships an APK, so a module found by both sources is not listed twice.
 

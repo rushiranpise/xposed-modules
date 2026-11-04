@@ -21,10 +21,13 @@
  *      - xposed_init   (classic Xposed entry point)
  *      - module.prop   (LSPosed module properties)
  *      - module.json   (LSPosed module repo format)
+ *      - META-INF/xposed/java_init.list   (libxposed Java entry point)
+ *      - META-INF/xposed/native_init.list (libxposed native entry point)
  *    Marker paths are probed via raw.githubusercontent.com (free, does not
  *    count against API rate limits). When GITHUB_TOKEN is set, candidates
  *    that miss every probe get a full git-tree scan, which catches modules
- *    with unusual directory layouts.
+ *    with unusual directory layouts. Repos that ship only APKs are checked
+ *    against the release APK's ZIP entries, using the same markers.
  *
  * Candidates that fail verification go into data/ignored.json so they are
  * not re-checked on every run. Verified repos are stored in data/repos.json
@@ -42,6 +45,7 @@ const ROOT = path.join(__dirname, "..");
 const DATA_DIR = path.join(ROOT, "data");
 const DATA_FILE = path.join(DATA_DIR, "repos.json");
 const IGNORED_FILE = path.join(DATA_DIR, "ignored.json");
+const WATCHLIST_FILE = path.join(DATA_DIR, "watchlist.json");
 
 const ORG = "Xposed-Modules-Repo"; // official LSPosed module repository
 
@@ -57,6 +61,17 @@ const DEFAULT_QUERIES = [
   "topic:xposed",
   '"xposed module" in:name,description',
   '"xposed-module" in:name,description',
+  '"lsposed module" in:description',
+  '"xposed framework" in:description',
+];
+
+// Code-search queries for the files a module needs in its source or APK.
+// GitHub caps each query at 1,000 results, so the libxposed files are searched
+// separately from the classic xposed_init file.
+const CODE_SEARCH_QUERIES = [
+  "filename:xposed_init",
+  "filename:java_init.list",
+  "filename:native_init.list",
 ];
 
 const DEFAULT_MAX_PAGES = 10; // pages per query; 100 repos per page, API caps at 1000/query
@@ -66,6 +81,7 @@ const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this l
 const DEFAULT_PACKAGE_RETRY_DAYS = 7; // re-probe APK manifests that could not be read
 const CONCURRENCY = 24; // parallel fetches for verification / metadata
 const PACKAGE_CONCURRENCY = 8; // parallel APK manifest probes (small range requests)
+const CODE_SEARCH_DELAY_MS = 6500; // code search allows only 10 requests/minute
 
 // Marker files that identify a real Xposed/LSPosed module, probed at the
 // most common source-layout paths via raw.githubusercontent.com (no API quota).
@@ -241,8 +257,8 @@ async function githubGetWithRetry(url, attempts = 3) {
 }
 
 // GitHub's code search finds modules whose descriptions never mention Xposed.
-// It needs a token, has a smaller rate limit, and stops at 1,000 results.
-async function searchXposedInitRepos(pages, delay) {
+// It needs a token, has a smaller rate limit, and each query stops at 1,000 results.
+async function searchMarkerCodeRepos(pages, delay) {
   // Code search is stricter than repository search for installation tokens.
   // A user token in CODE_SEARCH_TOKEN gets its own quota.
   const token = process.env.CODE_SEARCH_TOKEN || process.env.GITHUB_TOKEN;
@@ -252,41 +268,46 @@ async function searchXposedInitRepos(pages, delay) {
   }
 
   const found = new Map();
-  for (let page = 1; page <= pages; page++) {
-    const url = new URL("https://api.github.com/search/code");
-    url.searchParams.set("q", "filename:xposed_init");
-    url.searchParams.set("per_page", "100");
-    url.searchParams.set("page", String(page));
+  outer: for (const query of CODE_SEARCH_QUERIES) {
+    for (let page = 1; page <= pages; page++) {
+      const url = new URL("https://api.github.com/search/code");
+      url.searchParams.set("q", query);
+      url.searchParams.set("per_page", "100");
+      url.searchParams.set("page", String(page));
 
-    const res = await githubGet(url, token);
-    if (!res) break;
-    if (!res.ok) {
-      console.warn(`  Code search stopped (HTTP ${res.status ?? "error"}).`);
-      break;
-    }
-
-    let body;
-    try {
-      body = await res.json();
-    } catch {
-      break;
-    }
-    const items = Array.isArray(body.items) ? body.items : [];
-    for (const item of items) {
-      const repo = item.repository;
-      if (!repo || !repo.full_name || repo.fork) continue;
-      const key = repo.full_name.toLowerCase();
-      if (!found.has(key)) {
-        found.set(key, {
-          ...repo,
-          _verified: true,
-          _verifiedMarker: item.path || "xposed_init",
-        });
+      const res = await githubGet(url, token);
+      if (!res) break outer;
+      if (!res.ok) {
+        console.warn(`  Code search for ${query} stopped (HTTP ${res.status ?? "error"}).`);
+        if (res.rateLimited) break outer;
+        break;
       }
+
+      let body;
+      try {
+        body = await res.json();
+      } catch {
+        break;
+      }
+      const items = Array.isArray(body.items) ? body.items : [];
+      for (const item of items) {
+        const repo = item.repository;
+        if (!repo || !repo.full_name || repo.fork) continue;
+        const key = repo.full_name.toLowerCase();
+        if (!found.has(key)) {
+          found.set(key, {
+            ...repo,
+            _verified: true,
+            _verifiedMarker: item.path || query.replace("filename:", ""),
+          });
+        }
+      }
+      console.log(`  [code] ${query} page ${page}: ${items.length} matches`);
+      if (items.length < 100) break;
+      // Repository search allows ~30 requests/minute; code search allows 10.
+      // Three marker queries would trip that limit at the normal 3s delay.
+      await sleep(Math.max(delay, CODE_SEARCH_DELAY_MS));
     }
-    console.log(`  [code] page ${page}: ${items.length} matches`);
-    if (items.length < 100) break;
-    if (delay > 0) await sleep(delay);
   }
   return [...found.values()];
 }
@@ -562,8 +583,10 @@ function findEocd(buf) {
   return -1;
 }
 
-// Finds the ZIP entry for AndroidManifest.xml in a central directory buffer.
-function findManifestEntry(cd) {
+// Reads the ZIP central directory once. Both the package probe and the APK
+// marker check use it, so neither has to download the whole artifact.
+function zipEntries(cd) {
+  const entries = [];
   let p = 0;
   while (p + 46 <= cd.length && u32(cd, p) === 0x02014b50) {
     const method = u16(cd, p + 10);
@@ -573,10 +596,23 @@ function findManifestEntry(cd) {
     const commentLen = u16(cd, p + 32);
     const localOffset = u32(cd, p + 42);
     const name = cd.toString("utf8", p + 46, p + 46 + nameLen);
-    if (name === "AndroidManifest.xml") return { method, compSize, localOffset };
+    entries.push({ name, method, compSize, localOffset });
     p += 46 + nameLen + extraLen + commentLen;
   }
-  return null;
+  return entries;
+}
+
+function findZipEntry(cd, name) {
+  return zipEntries(cd).find((entry) => entry.name === name) || null;
+}
+
+// A release APK is a module when it carries the classic entry file or any
+// libxposed metadata. This mirrors what the app checks on an installed APK.
+function findApkMarker(cd) {
+  const entry = zipEntries(cd).find(
+    (item) => item.name === "assets/xposed_init" || item.name.startsWith("META-INF/xposed/")
+  );
+  return entry ? entry.name : null;
 }
 
 function parseStringPool(buf, start) {
@@ -641,7 +677,7 @@ function readPackageFromManifest(buf) {
   return null;
 }
 
-async function readApkPackage(apkUrl) {
+async function readApkCentralDirectory(apkUrl) {
   const head = await rangeGetWithRetry(apkUrl, 0, 0);
   if (!head.total) throw new Error("APK size unknown");
 
@@ -655,7 +691,11 @@ async function readApkPackage(apkUrl) {
   if (cdSize <= 0 || cdOffset + cdSize > head.total) throw new Error("invalid ZIP directory");
 
   const cd = await rangeGetWithRetry(apkUrl, cdOffset, cdOffset + cdSize - 1);
-  const manifest = findManifestEntry(cd.buffer);
+  return { cd: cd.buffer, total: head.total };
+}
+
+async function readPackageFromCentralDirectory(apkUrl, cd) {
+  const manifest = findZipEntry(cd, "AndroidManifest.xml");
   if (!manifest) throw new Error("AndroidManifest.xml not found");
 
   const localHeaderEnd = manifest.localOffset + 30 + 4096;
@@ -679,6 +719,23 @@ async function readApkPackage(apkUrl) {
   return readPackageFromManifest(xml);
 }
 
+async function readApkPackage(apkUrl) {
+  const { cd } = await readApkCentralDirectory(apkUrl);
+  return readPackageFromCentralDirectory(apkUrl, cd);
+}
+
+async function readApkModuleInfo(apkUrl) {
+  const { cd } = await readApkCentralDirectory(apkUrl);
+  const marker = findApkMarker(cd);
+  let packageName = null;
+  try {
+    packageName = await readPackageFromCentralDirectory(apkUrl, cd);
+  } catch {
+    // A marker is enough to verify a module. The package probe can retry later.
+  }
+  return { marker, package: packageName };
+}
+
 // The package id an entry resolves to: explicit `package`, or the official
 // org repo name for entries that came from the LSPosed repository.
 function packageIdOf(entry) {
@@ -691,20 +748,28 @@ function packageIdOf(entry) {
   return null;
 }
 
-// Official entries already expose the package through org_repo, which consumers
-// read directly. Only search-found repos need it read out of the APK.
-function hasKnownPackage(entry) {
-  return packageIdOf(entry) !== null;
+// Official entries used to rely on the lowercased org repo name. The APK is
+// the source of truth: it preserves case and catches a module whose published
+// package differs from its repo name. Probe both official and search entries.
+function hasExactPackage(entry) {
+  return isPackageId(entry.package);
+}
+
+function packageReleaseKey(entry) {
+  return (entry.release && (entry.release.apk_url || entry.release.tag)) || "";
 }
 
 async function fillMissingPackages(entries, args) {
   const retryMs = args.packageRetryDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
   const candidates = entries.filter((entry) => {
-    if (hasKnownPackage(entry)) return false;
+    if (hasExactPackage(entry)) return false;
     if (!entry.release || !entry.release.apk_url) return false;
     const checkedAt = entry.package_checked_at ? new Date(entry.package_checked_at).getTime() : 0;
-    return !checkedAt || now - checkedAt >= retryMs;
+    if (!checkedAt) return true;
+    // An entry cached before package_checked_release existed retries once.
+    if (entry.package_checked_release !== packageReleaseKey(entry)) return true;
+    return now - checkedAt >= retryMs;
   });
   if (candidates.length === 0) return;
 
@@ -713,26 +778,38 @@ async function fillMissingPackages(entries, args) {
   let probed = 0;
   const failures = [];
   await runPool(candidates, PACKAGE_CONCURRENCY, async (entry) => {
+    const apkKey = packageReleaseKey(entry);
     try {
       const pkg = await readApkPackage(entry.release.apk_url);
       if (pkg) {
         entry.package = pkg;
         delete entry.package_checked_at;
+        delete entry.package_checked_release;
         resolved++;
       } else {
         entry.package_checked_at = new Date().toISOString();
+        entry.package_checked_release = apkKey;
         failures.push(`${entry.full_name}: no package attribute`);
         failed++;
       }
     } catch (error) {
-      entry.package_checked_at = new Date().toISOString();
+      // A missing asset is often a release that moved. Do not lock it out for
+      // the full retry window; force a fresh release lookup on the next run.
+      if (/^HTTP 404$/.test(error.message)) {
+        delete entry.package_checked_at;
+        delete entry.package_checked_release;
+        delete entry.release_fetched_at;
+      } else {
+        entry.package_checked_at = new Date().toISOString();
+        entry.package_checked_release = apkKey;
+      }
       failures.push(`${entry.full_name}: ${error.message}`);
       failed++;
     }
     probed++;
     if (probed % 100 === 0) console.log(`  ... ${probed}/${candidates.length} APKs probed`);
   });
-  console.log(`  Package ids from APK manifests: ${resolved} resolved, ${failed} unreadable (${candidates.length} probed)`);
+  console.log(`  Exact package ids from APK manifests: ${resolved} resolved, ${failed} unreadable (${candidates.length} probed)`);
   if (failures.length > 0) console.log(`  Unreadable: ${failures.slice(0, 5).join("; ")}`);
 }
 
@@ -947,6 +1024,10 @@ async function main() {
   const existingByKey = new Map(existingList.map((r) => [r.full_name, r]).filter(([k]) => k));
   let ignored = loadJson(IGNORED_FILE, {});
   if (!ignored || typeof ignored !== "object" || Array.isArray(ignored)) ignored = {};
+  const watchlistData = loadJson(WATCHLIST_FILE, []);
+  const watchlist = (Array.isArray(watchlistData) ? watchlistData : [])
+    .filter((name) => typeof name === "string" && /^[^/]+\/[^/]+$/.test(name));
+  const watchlistNames = new Set(watchlist.map((name) => name.toLowerCase()));
 
   const final = new Map();
   const nowIso = new Date().toISOString();
@@ -983,6 +1064,7 @@ async function main() {
         release_checked_deep: prev ? prev.release_checked_deep : undefined,
         package: prev ? prev.package : undefined,
         package_checked_at: prev ? prev.package_checked_at : undefined,
+        package_checked_release: prev ? prev.package_checked_release : undefined,
         metadata: prev ? prev.metadata : undefined,
         metadata_checked_at: prev ? prev.metadata_checked_at : undefined,
         verified: true,
@@ -1007,11 +1089,11 @@ async function main() {
 
   const candidates = [];
 
-  // ---- Source 2: GitHub code search for the legacy Xposed entry file ----
+  // ---- Source 2: GitHub code search for Xposed and libxposed entry files ----
   // Run this before the repository search so both share the search quota fairly.
   if (args.codeSearch) {
-    console.log("Source 2: searching GitHub code for xposed_init...");
-    const codeRepos = await searchXposedInitRepos(args.codePages, args.delay);
+    console.log("Source 2: searching GitHub code for Xposed and libxposed markers...");
+    const codeRepos = await searchMarkerCodeRepos(args.codePages, args.delay);
     candidates.push(...codeRepos);
     console.log(`  ${codeRepos.length} repos from code search`);
     if (codeRepos.length > 0 && args.delay > 0) await sleep(5000);
@@ -1028,6 +1110,23 @@ async function main() {
       break;
     }
   }
+
+  // Curated repos that search misses, or that ship only APKs and therefore
+  // have nothing for the source probes to find. They still go through the same
+  // source/APK verification as every other candidate.
+  for (const fullName of watchlist) {
+    let repo = { full_name: fullName, owner: { login: fullName.split("/")[0] } };
+    const res = await githubGet(`https://api.github.com/repos/${fullName}`);
+    if (res && res.ok) {
+      try {
+        repo = await res.json();
+      } catch {
+        // Keep the minimal entry so a raw-source probe can still verify it.
+      }
+    }
+    candidates.push({ ...repo, _watchlist: true });
+  }
+  if (watchlist.length > 0) console.log(`  ${watchlist.length} watchlist repos`);
 
   // Keep entries from previous runs that this run's search didn't return (e.g.
   // after a deeper crawl), and re-verify any pre-verification leftovers.
@@ -1049,6 +1148,7 @@ async function main() {
   for (const repo of candidates) {
     if (!repo.full_name) continue;
     if (repo.owner && repo.owner.login && repo.owner.login.toLowerCase() === ORG.toLowerCase()) continue;
+    if (watchlistNames.has(repo.full_name.toLowerCase())) repo._watchlist = true;
     if (seen.has(repo.full_name.toLowerCase())) continue;
     seen.add(repo.full_name.toLowerCase());
     toVerify.push(repo);
@@ -1061,7 +1161,7 @@ async function main() {
 
     const ignoredKey = repo.full_name.toLowerCase();
     const ign = ignored[ignoredKey];
-    if (ign && ign.checked_at && Date.now() - new Date(ign.checked_at).getTime() < ignoreTtlMs) {
+    if (!repo._watchlist && ign && ign.checked_at && Date.now() - new Date(ign.checked_at).getTime() < ignoreTtlMs) {
       return { repo, verdict: "ignored" };
     }
 
@@ -1089,6 +1189,30 @@ async function main() {
       const tree = await treeCheck(repo);
       if (tree.verified) return { repo, verdict: "verified", marker: tree.marker, metadata: null };
     }
+
+    // Last resort for watched APK-only repos: inspect the release APK's ZIP
+    // directory. This is the same marker set the app checks after install.
+    if (repo._watchlist) {
+      const release = await fetchLatestRelease(repo);
+      if (release.status === "ok" && release.release && release.release.apk_url) {
+        try {
+          const info = await readApkModuleInfo(release.release.apk_url);
+          if (info.marker) {
+            return {
+              repo,
+              verdict: "verified",
+              marker: info.marker,
+              metadata: null,
+              release: release.release,
+              releaseFetchedAt: release.fetchedAt,
+              apkPackage: info.package,
+            };
+          }
+        } catch {
+          // Not an APK module, or the release asset is unavailable.
+        }
+      }
+    }
     return { repo, verdict: "rejected" };
   });
 
@@ -1096,7 +1220,7 @@ async function main() {
   let rejected = 0;
   let merged = 0;
   let known = 0;
-  for (const { repo, verdict, marker, metadata } of results) {
+  for (const { repo, verdict, marker, metadata, release: apkRelease, releaseFetchedAt, apkPackage } of results) {
     if (verdict === "ignored") continue;
     if (verdict === "rejected") {
       ignored[repo.full_name.toLowerCase()] = { checked_at: nowIso };
@@ -1111,7 +1235,7 @@ async function main() {
       // Search found the real source repo of an official entry: merge the two.
       entry = {
         ...pickRepo(repo),
-        package: orgEntry.full_name,
+        package: orgEntry.package || (prev && prev.package),
         summary: orgEntry.summary,
         scope: orgEntry.scope,
         org_repo: orgEntry.org_repo,
@@ -1133,6 +1257,11 @@ async function main() {
     }
     if (marker) entry.marker = marker;
     if (metadata && Object.keys(metadata).length) entry.metadata = metadata;
+    if (!orgEntry && prev && prev.package) entry.package = prev.package;
+    if (!entry.package && prev && prev.package_checked_at) {
+      entry.package_checked_at = prev.package_checked_at;
+      entry.package_checked_release = prev.package_checked_release;
+    }
     entry.added_at = prev ? prev.added_at : nowIso;
     // Keep cached enrichment across refreshes (release data has its own TTL).
     if (prev && prev.release) entry.release = prev.release;
@@ -1144,6 +1273,12 @@ async function main() {
       entry.release_fetched_at = entry.release_fetched_at || orgEntry.release_fetched_at;
       if (orgEntry.release_checked_deep) entry.release_checked_deep = true;
     }
+    if (apkRelease) {
+      entry.release = apkRelease;
+      entry.release_fetched_at = releaseFetchedAt;
+      entry.release_checked_deep = true;
+    }
+    if (apkPackage) entry.package = apkPackage;
     if (verdict === "known") known++;
     final.set(entry.full_name, entry);
     verified++;
@@ -1299,9 +1434,19 @@ async function main() {
     });
   }
 
-  // ---- Package ids for search-found repos ----
-  // Official entries already carry the package in their repo name. Everything
-  // else gets it from the release APK's manifest.
+  // A changed or missing release invalidates a failed package probe. Without
+  // this, a stale 404 would hide the new asset until the retry window expired.
+  for (const entry of all) {
+    if (!entry.package_checked_release) continue;
+    if (entry.package_checked_release !== packageReleaseKey(entry)) {
+      delete entry.package_checked_at;
+      delete entry.package_checked_release;
+    }
+  }
+
+  // ---- Package ids from release APKs ----
+  // Probe search and official entries: the repo name is not always the installed
+  // package, and it loses case.
   if (args.packageScan) {
     await fillMissingPackages(all, args);
   }
@@ -1350,5 +1495,6 @@ module.exports = {
   fetchLatestRelease,
   mergeDuplicatePackages,
   packageIdOf,
-  searchXposedInitRepos,
+  searchMarkerCodeRepos,
+  readApkModuleInfo,
 };
