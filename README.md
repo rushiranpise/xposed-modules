@@ -100,7 +100,7 @@ node scripts/find-repos.js [--max-pages N] [--delay MS] [--queries "q1|q2"]
 
 - `--no-org` — skip the official org crawl
 - `--ignore-ttl-days` — days before a failed candidate is re-checked (default: 30)
-- `--release-ttl-days` — days before a cached release is refreshed (default: 7)
+- `--release-ttl-days` - days before a cached release is refreshed (default: 1)
 - `--api-scan N` — re-scan module API metadata for `N` repos per run
 - `--package-retry-days` — days before an unreadable APK manifest is probed again (default: 7)
 - `--no-package-scan` — skip the APK manifest pass

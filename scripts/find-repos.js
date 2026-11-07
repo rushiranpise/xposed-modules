@@ -77,7 +77,7 @@ const CODE_SEARCH_QUERIES = [
 const DEFAULT_MAX_PAGES = 10; // pages per query; 100 repos per page, API caps at 1000/query
 const DEFAULT_DELAY_MS = 3000; // stays under GitHub's search rate limits
 const DEFAULT_IGNORE_TTL_DAYS = 30; // re-check rejected candidates after this long
-const DEFAULT_RELEASE_TTL_DAYS = 7; // re-fetch latest release info after this long
+const DEFAULT_RELEASE_TTL_DAYS = 1; // re-fetch latest release info after this long
 const DEFAULT_PACKAGE_RETRY_DAYS = 7; // re-probe APK manifests that could not be read
 const CONCURRENCY = 24; // parallel fetches for verification / metadata
 const PACKAGE_CONCURRENCY = 8; // parallel APK manifest probes (small range requests)
@@ -970,10 +970,37 @@ async function runPool(items, limit, fn) {
 
 const isApkAsset = (asset) => /\.apk$/i.test((asset && asset.name) || "");
 
+// Prefer the real repository over the LSPosed mirror. A merged entry keeps the
+// real repo in full_name; an official-only entry uses its source_url or mirror.
+function releaseRepoCandidates(entry) {
+  const refs = [];
+  const add = (ref) => {
+    const value = String(ref || "").trim();
+    if (!/^[^/\s]+\/[^/\s]+$/.test(value)) return;
+    if (!refs.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
+      refs.push(value);
+    }
+  };
+  add(entry.full_name);
+  add(parseGithubRepo(entry.source_url));
+  add(entry.org_repo);
+  return refs;
+}
+
 // Fetches the newest release that carries an APK, plus the raw result state so
 // the caller can tell a repo with no releases from a transient request failure.
 async function fetchLatestRelease(entry) {
-  const repoRef = entry.org_repo || entry.full_name;
+  let last = null;
+  for (const repoRef of releaseRepoCandidates(entry)) {
+    const result = await fetchLatestReleaseFromRepo(repoRef);
+    if (result.status === "ratelimited") return result;
+    if (result.status === "ok" && result.release && result.release.apk_url) return result;
+    if (!last || result.status === "ok") last = result;
+  }
+  return last || { status: "retry" };
+}
+
+async function fetchLatestReleaseFromRepo(repoRef) {
   const url = new URL(`https://api.github.com/repos/${repoRef}/releases`);
   url.searchParams.set("per_page", "10");
   const res = await githubGetWithRetry(url);
